@@ -116,6 +116,8 @@ with st.sidebar:
             auth_url = qb_client.get_auth_url()
             st.link_button("Connect QuickBooks Online", auth_url,
                            type="primary", use_container_width=True)
+            with st.expander("Debug: view auth URL"):
+                st.code(auth_url)
             st.info("After clicking, Intuit will ask you to sign in and authorize. "
                     "You'll be redirected back here automatically.")
         except Exception as e:

@@ -52,9 +52,19 @@ def _auth_client() -> AuthClient:
 
 
 def get_auth_url() -> str:
-    auth = _auth_client()
-    scopes = [Scopes.ACCOUNTING]
-    return auth.get_authorization_url(scopes)
+    """Build the Intuit OAuth2 authorization URL manually for full control."""
+    import urllib.parse
+    import secrets as _secrets
+    state = _secrets.token_urlsafe(16)
+    params = {
+        "client_id": _client_id(),
+        "response_type": "code",
+        "scope": "com.intuit.quickbooks.accounting",
+        "redirect_uri": _redirect_uri(),
+        "state": state,
+    }
+    base = "https://appcenter.intuit.com/connect/oauth2"
+    return f"{base}?{urllib.parse.urlencode(params)}"
 
 
 def exchange_code(code: str, realm_id: str) -> dict:
