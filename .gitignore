@@ -1,0 +1,23 @@
+# Environment & secrets
+.env
+.env.local
+*.env
+
+# QB tokens and local data
+data/
+*.db
+*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Streamlit cache
+.streamlit/
