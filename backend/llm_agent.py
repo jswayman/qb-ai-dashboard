@@ -121,7 +121,7 @@ TOOLS = [
 # ─── Tool implementations ─────────────────────────────────────────────────────
 
 def _tool_query_financials(sql: str, chart_type: str = "none",
-                           x_col: str = "", y_col: str = "") -> dict:
+                           x_col: str = "", y_col: str = "", **kwargs) -> dict:
     try:
         df = db.run_sql(sql)
         return {
@@ -166,7 +166,7 @@ def _tool_get_kpi_summary() -> dict:
         return {"error": str(e)}
 
 
-def _tool_get_revenue_trend(year: Optional[int] = None) -> dict:
+def _tool_get_revenue_trend(year: Optional[int] = None, **kwargs) -> dict:
     import datetime
     year = year or datetime.date.today().year
     try:
@@ -189,7 +189,7 @@ def _tool_get_revenue_trend(year: Optional[int] = None) -> dict:
         return {"error": str(e)}
 
 
-def _tool_get_expense_breakdown(group_by: str = "vendor", limit: int = 10) -> dict:
+def _tool_get_expense_breakdown(group_by: str = "vendor", limit: int = 10, **kwargs) -> dict:
     col = "vendor_name" if group_by == "vendor" else "account_name"
     try:
         df = db.run_sql(f"""
