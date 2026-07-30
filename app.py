@@ -112,10 +112,14 @@ with st.sidebar:
         st.markdown('<span class="status-badge badge-green">✓ Connected</span>', unsafe_allow_html=True)
     else:
         st.markdown('<span class="status-badge badge-red">Not connected</span>', unsafe_allow_html=True)
-        if st.button("Connect QuickBooks Online", type="primary", use_container_width=True):
+        try:
             auth_url = qb_client.get_auth_url()
-            st.markdown(f"[Click here to authorize QuickBooks]({auth_url})")
-            st.info("After authorizing, you'll be redirected. Copy the `code` and `realmId` from the URL.")
+            st.link_button("Connect QuickBooks Online", auth_url,
+                           type="primary", use_container_width=True)
+            st.info("After clicking, Intuit will ask you to sign in and authorize. "
+                    "You'll be redirected back here automatically.")
+        except Exception as e:
+            st.error(f"Could not generate auth URL: {e}")
 
         # Manual code exchange (for Streamlit's redirect limitation)
         with st.expander("Paste OAuth callback parameters"):
