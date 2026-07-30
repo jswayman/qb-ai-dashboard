@@ -25,7 +25,10 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from backend import db, qb_client, sync
-from backend.llm_agent import (
+
+# Data query functions live in queries.py — no litellm dependency.
+# The dashboard renders even if the AI backend is unavailable.
+from backend.queries import (
     _tool_get_bills_trend,
     _tool_get_cash_balance,
     _tool_get_expense_breakdown,
@@ -37,8 +40,16 @@ from backend.llm_agent import (
     _tool_get_revenue_trend,
     _tool_get_top_customers_by_revenue,
     _tool_get_top_vendors,
-    chat,
 )
+
+# chat() depends on litellm — import lazily so a broken AI env doesn't crash the app.
+try:
+    from backend.llm_agent import chat as _chat
+    _ai_available = True
+except Exception as _ai_err:
+    _chat = None
+    _ai_available = False
+    _ai_err_msg = str(_ai_err)
 
 load_dotenv()
 
@@ -565,6 +576,13 @@ with tab_ai:
     st.subheader("💬 Ask Anything About Your Financials")
     st.caption("The AI has access to all your synced QuickBooks data and can build custom visualizations.")
 
+    if not _ai_available:
+        st.error(
+            f"AI assistant is unavailable — the LLM backend failed to load.\n\n"
+            f"Make sure `litellm` is installed and Ollama is running (`ollama serve`).\n\n"
+            f"Error: `{_ai_err_msg}`"
+        )
+
     EXAMPLE_PROMPTS = [
         "What are my top 5 customers by revenue?",
         "Show me monthly revenue for this year as a bar chart",
@@ -599,7 +617,7 @@ with tab_ai:
 
     user_input = st.chat_input(
         "Ask anything about your financials…",
-        disabled=not qb_client.is_authenticated(),
+        disabled=not qb_client.is_authenticated() or not _ai_available,
     )
     prompt = pending or user_input
 
@@ -615,7 +633,7 @@ with tab_ai:
                     for m in st.session_state.messages[:-1]
                 ]
                 try:
-                    agent_resp = chat(prompt, history=history)
+                    agent_resp = _chat(prompt, history=history)
                     st.write(agent_resp.text)
                     charts_rendered = []
                     for tr in agent_resp.tool_results:
