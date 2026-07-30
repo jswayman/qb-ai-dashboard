@@ -15,6 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import os
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -24,6 +26,16 @@ from backend import db, qb_client, sync
 from backend.llm_agent import chat
 
 load_dotenv()
+
+# Copy Streamlit Cloud secrets into os.environ so all backend modules
+# can read them via os.getenv() — works both locally and on Streamlit Cloud.
+try:
+    for _k, _v in st.secrets.items():
+        if isinstance(_v, str):
+            os.environ[_k] = _v
+except Exception:
+    pass
+
 db.init_schema()
 
 st.set_page_config(
