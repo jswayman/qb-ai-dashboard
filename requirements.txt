@@ -1,0 +1,23 @@
+# Core
+streamlit==1.36.0
+fastapi==0.111.0
+uvicorn==0.30.1
+
+# QuickBooks Online
+intuitlib==6.0.0
+requests==2.32.3
+
+# LiteLLM (unified LLM interface — swap backend via env var)
+litellm==1.40.28
+
+# Data + charting
+pandas==2.2.2
+plotly==5.22.0
+sqlalchemy==2.0.31
+
+# Auth / token storage
+python-dotenv==1.0.1
+cryptography==42.0.8
+
+# Dev utilities
+httpx==0.27.0
