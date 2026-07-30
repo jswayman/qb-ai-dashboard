@@ -10,7 +10,7 @@ It gives the agent full knowledge of the data schema, tool contracts, and expect
 This is a QuickBooks Online financial intelligence layer. It:
 1. Authenticates with QuickBooks Online via OAuth2
 2. Syncs financial data into a local SQLite database
-3. Exposes that data to an LLM agent via function-calling tools
+3. Exposes that data to an LLM agent via function-calling tools (or direct data injection for Ollama)
 4. Returns answers as text + structured chart data to a Streamlit dashboard
 
 ---
@@ -84,7 +84,7 @@ Returns top expense totals grouped by vendor or account as a pie chart dataset.
 QuickBooks Online (cloud)
         │  OAuth2 + REST API
         ▼
-  backend/qb_client.py       ← token management, API calls
+  backend/qb_client.py       ← token management, API calls (all credentials lazy-loaded)
         │
         ▼
   backend/sync.py            ← orchestrates full sync
@@ -93,7 +93,7 @@ QuickBooks Online (cloud)
   SQLite (./data/qb_data.db) ← local cache, never leaves your machine
         │
         ▼
-  backend/llm_agent.py       ← LiteLLM + function-calling tools
+  backend/llm_agent.py       ← dual-path agent (see below)
         │
         ▼
   app.py (Streamlit)         ← chat UI + auto-rendered charts
@@ -101,38 +101,80 @@ QuickBooks Online (cloud)
 
 ---
 
-## Switching from Ollama to your private LLM
+## Dual-path agent (critical for Ollama users)
 
-In your `.env` file, change these two lines:
+The agent automatically detects which LLM backend is configured and adjusts its behavior:
 
-```bash
-# From (Ollama dev):
-LITELLM_MODEL=ollama/llama3.2
-LITELLM_API_BASE=http://localhost:11434
+| Backend | Strategy | Why |
+|---|---|---|
+| `ollama/*` | **Data injection** — pre-runs all tools, injects results into the prompt | Ollama/Llama does not reliably support OpenAI-style function calling |
+| `groq/*`, `openai/*`, `your private LLM` | **Tool calling** — agentic loop with function calls | Full tool calling support, more accurate for ad-hoc queries |
 
-# To (your private LiteLLM gateway):
-LITELLM_MODEL=openai/your-model-name
-LITELLM_API_BASE=https://your-litellm-gateway.example.com
-LITELLM_API_KEY=your_api_key
-```
+If tool calling fails for any reason (e.g. model capability mismatch), the agent automatically falls back to data injection.
 
-LiteLLM supports OpenAI-compatible APIs, Llama.cpp, vLLM, and many others.
-Your private LLM just needs to support the `/chat/completions` endpoint with `tools`.
-
-**Model requirement:** Your LLM must support OpenAI-style function calling / tool use.
-- Llama 3.1/3.2 via Ollama: ✓ supported
-- Mistral 7B-Instruct: ✓ supported
-- Any model served via vLLM with `--enable-auto-tool-choice`: ✓ supported
-- Older models (e.g. Llama 2): ✗ not supported — use a newer model
+**If your private LLM supports tool calling** (OpenAI-compatible `/chat/completions` with `tools` parameter), the full agentic loop will be used. If not, set the model name to start with `ollama/` and it will use data injection.
 
 ---
 
-## Adding new tools
+## Switching LLM backends
 
-1. Add a function definition to `TOOLS` list in `llm_agent.py` (OpenAI function format)
-2. Implement the handler function (must return a dict with `data`, `chart_type`, `x_col`, `y_col`)
-3. Register it in `TOOL_MAP`
-4. Update the system prompt above with a description of the new tool
+Edit `.env` locally or Streamlit Cloud secrets:
+
+```bash
+# Local Ollama (data injection mode):
+LITELLM_MODEL=ollama/llama3.2
+LITELLM_API_BASE=http://localhost:11434
+
+# Groq free tier (tool calling, recommended for cloud):
+LITELLM_MODEL=groq/llama-3.3-70b-versatile
+LITELLM_API_KEY=gsk_your-groq-key
+# (no LITELLM_API_BASE needed)
+
+# Your private LiteLLM gateway (tool calling):
+LITELLM_MODEL=openai/your-model-name
+LITELLM_API_BASE=https://your-litellm-gateway.example.com
+LITELLM_API_KEY=your_api_key
+
+# OpenAI fallback:
+LITELLM_MODEL=gpt-4o-mini
+LITELLM_API_KEY=sk-your-openai-key
+# (no LITELLM_API_BASE needed)
+```
+
+**Model requirement for tool calling:** Must support OpenAI-style function calling.
+- Llama 3.3 70B via Groq: ✓
+- GPT-4o / GPT-4o-mini: ✓
+- Llama 3.1 8B (Groq): ✗ unreliable — use 70B instead
+- Llama 3.2 via Ollama: ✗ use data injection mode (automatic)
+- Private LLM via vLLM with `--enable-auto-tool-choice`: ✓
+
+---
+
+## Local dev setup (for coworkers running their own Ollama)
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/jswayman/qb-ai-dashboard.git
+cd qb-ai-dashboard
+
+# 2. Install dependencies (Python 3.9+ required)
+pip3 install -r requirements.txt
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env — fill in QB_CLIENT_ID and QB_CLIENT_SECRET
+
+# 4. Install Ollama → https://ollama.com
+ollama pull llama3.2
+# Ollama starts automatically on macOS; if not: ollama serve
+
+# 5. Launch
+python3 -m streamlit run app.py
+```
+
+Open http://localhost:8501 → Connect QuickBooks → Sync → Ask questions.
+
+**Note:** Use `python3 -m streamlit` not `streamlit` directly — macOS doesn't add the pip bin path automatically.
 
 ---
 
@@ -140,45 +182,83 @@ Your private LLM just needs to support the `/chat/completions` endpoint with `to
 
 - [ ] Create a free developer account at [developer.intuit.com](https://developer.intuit.com)
 - [ ] Create an app → select **QuickBooks Online Accounting** scope
-- [ ] Copy Client ID and Client Secret to `.env`
-- [ ] Add redirect URI: `http://localhost:8501/callback`
-- [ ] Use **Sandbox** company for testing (Intuit provides one pre-loaded with data)
-- [ ] When ready for production: change `QB_ENVIRONMENT=production` in `.env`
+- [ ] Under **Keys & Credentials**, copy the **Development** Client ID and Secret (NOT Production)
+- [ ] Under **Settings → Redirect URIs → Development tab**, add your redirect URI(s):
+  - Local: `http://localhost:8501`
+  - Cloud: `https://your-app.streamlit.app`
+- [ ] Use the **Sandbox** company for testing (Intuit provides one pre-loaded with data)
+- [ ] Set `QB_ENVIRONMENT=sandbox` in `.env` while testing
+- [ ] When going to production: use Production keys + `QB_ENVIRONMENT=production`
+
+**Common OAuth gotchas learned during setup:**
+- "undefined didn't connect" = wrong Client ID (make sure to use Development key, not Production)
+- "redirect_uri is invalid" = URI not registered under Settings → Redirect URIs → Development tab
+- Intuit is strict about exact URI matching — no trailing slash
 
 ---
 
-## Local dev setup checklist
+## Streamlit Cloud deployment
 
-- [ ] `cp .env.example .env` and fill in your QB credentials
-- [ ] `pip install -r requirements.txt`
-- [ ] Install Ollama: [ollama.com](https://ollama.com)
-- [ ] `ollama pull llama3.2`
-- [ ] `streamlit run app.py`
-- [ ] Connect QB in sidebar → Sync → Ask questions
+Live URL: **https://qb-ai-dashboard-b6carf4pchvwndd2nctely.streamlit.app**
+GitHub: **https://github.com/jswayman/qb-ai-dashboard**
+
+Secrets (set via Streamlit Cloud → app → ⋮ → Settings → Secrets):
+```toml
+QB_CLIENT_ID = "your_development_client_id"
+QB_CLIENT_SECRET = "your_development_client_secret"
+QB_REDIRECT_URI = "https://qb-ai-dashboard-b6carf4pchvwndd2nctely.streamlit.app"
+QB_ENVIRONMENT = "sandbox"
+APP_SECRET_KEY = "your-random-secret"
+DB_PATH = "./data/qb_data.db"
+TOKEN_PATH = "./data/qb_tokens.json"
+LITELLM_MODEL = "groq/llama-3.3-70b-versatile"
+LITELLM_API_KEY = "gsk_your-groq-key"
+```
+
+**Important:** On Streamlit Cloud, `os.environ` is populated from `st.secrets` at startup (in `app.py`). Do not rely on `.env` files on Cloud.
 
 ---
 
-## Known limitations of this prototype
+## Python version compatibility
+
+This project requires **Python 3.9+**. All type hints use `Optional[X]` from `typing` instead of `X | None` syntax (which requires 3.10+). Do not introduce `X | Y` union syntax — it will break on Python 3.9.
+
+---
+
+## Adding new tools
+
+1. Add a function definition to `TOOLS` list in `llm_agent.py` (OpenAI function format)
+2. Implement the handler — must return a dict with `data`, `chart_type`, `x_col`, `y_col`
+3. Add `**kwargs` to the handler signature to absorb extra args different LLMs may send
+4. Register it in `TOOL_MAP`
+5. Update the system prompt above with a description of the new tool
+6. The Ollama data injection path (`use_tools=False`) runs pre-built tools only — add your new tool there too if it should always be available
+
+---
+
+## Known limitations
 
 | Limitation | Notes |
 |---|---|
-| Full sync only | No delta/incremental sync yet. Re-syncing replaces all rows. |
-| Single company | One QB realm ID per deployment. Multi-company requires routing logic. |
-| No historical reports | P&L and Balance Sheet APIs are stubbed in qb_client.py but not yet wired into the agent tools. |
-| OAuth redirect in Streamlit | Streamlit can't intercept redirects easily — users paste the callback code manually. A FastAPI sidecar would solve this cleanly. |
-| No auth on the app itself | Anyone who can reach the Streamlit URL can chat with your data. Add Streamlit's built-in auth or put it behind a VPN. |
+| Full sync only | No delta/incremental sync. Re-syncing replaces all rows. |
+| Single company | One QB realm ID per deployment. |
+| Ephemeral storage on Cloud | Streamlit Cloud filesystem resets on redeploy — re-sync after restarts. |
+| Shared session | All users on the Cloud URL share the same QB connection and data. Add auth before using with multiple clients. |
+| No historical reports | P&L and Balance Sheet APIs are in `qb_client.py` but not yet wired into agent tools. |
+| Ollama = no charts | Data injection mode answers questions but chart rendering depends on the LLM correctly returning structured data. Works best with Groq/OpenAI tool calling. |
 
 ---
 
-## Recommended next steps (post-prototype)
+## Recommended next steps
 
-1. **Delta sync** — use QB `MetaData.LastUpdatedTime` filter to sync only new/changed records
-2. **Report tools** — add `get_profit_and_loss(start, end)` and `get_balance_sheet()` as LLM tools using the QB Reports API
-3. **FastAPI backend** — replace Streamlit's OAuth workaround with a proper `/callback` route
-4. **Scheduled sync** — cron job or Railway scheduled task to refresh data nightly
-5. **Multi-company** — store realm_id per user, route queries to the right data partition
-6. **Export** — add "Download as CSV" and "Email this report" buttons
+1. **Delta sync** — filter by `MetaData.LastUpdatedTime` to only pull new/changed records
+2. **P&L and Balance Sheet tools** — wire `get_profit_and_loss()` and `get_balance_sheet()` from `qb_client.py` into the agent
+3. **Scheduled sync** — nightly cron to keep data fresh without manual sync
+4. **User auth** — add Streamlit's built-in auth or a simple password before sharing with clients
+5. **Persistent token storage** — store QB tokens in a DB instead of the local filesystem so they survive Streamlit Cloud restarts
+6. **Multi-company** — route by realm_id to support multiple QB accounts
 
 ---
 
-*Generated: 2026-07-30 | Project: qb-ai-dashboard | Stack: LiteLLM + Ollama + QuickBooks Online + SQLite + Streamlit*
+*Last updated: 2026-07-30 | Stack: LiteLLM + Groq (cloud) / Ollama (local) + QuickBooks Online + SQLite + Streamlit*
+*Repo: github.com/jswayman/qb-ai-dashboard*
