@@ -27,8 +27,15 @@ from backend.llm_agent import chat
 
 load_dotenv()
 
-# Copy Streamlit Cloud secrets into os.environ so all backend modules
-# can read them via os.getenv() — works both locally and on Streamlit Cloud.
+st.set_page_config(
+    page_title="QB AI Dashboard",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Copy Streamlit Cloud secrets into os.environ — must be after set_page_config.
+# Silent locally (no secrets.toml needed for local dev — .env handles it).
 try:
     for _k, _v in st.secrets.items():
         if isinstance(_v, str):
@@ -37,13 +44,6 @@ except Exception:
     pass
 
 db.init_schema()
-
-st.set_page_config(
-    page_title="QB AI Dashboard",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
 # ─── Custom CSS ───────────────────────────────────────────────────────────────
 st.markdown("""

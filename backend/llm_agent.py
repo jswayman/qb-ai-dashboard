@@ -23,16 +23,9 @@ from . import db
 
 load_dotenv()
 
-def _secret(key: str, default: str = "") -> str:
-    try:
-        import streamlit as st
-        return st.secrets.get(key, os.getenv(key, default))
-    except Exception:
-        return os.getenv(key, default)
-
-MODEL = _secret("LITELLM_MODEL", "ollama/llama3.2")
-API_BASE = _secret("LITELLM_API_BASE", "")
-API_KEY = _secret("LITELLM_API_KEY", "ollama")  # dummy value for local Ollama
+MODEL = os.getenv("LITELLM_MODEL", "ollama/llama3.2")
+API_BASE = os.getenv("LITELLM_API_BASE", "")
+API_KEY = os.getenv("LITELLM_API_KEY", "ollama")  # dummy value for local Ollama
 
 litellm.set_verbose = False
 

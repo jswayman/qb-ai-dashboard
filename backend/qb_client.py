@@ -21,26 +21,17 @@ from intuitlib.enums import Scopes
 
 load_dotenv()
 
-def _secret(key: str, default: str = "") -> str:
-    """Read from Streamlit secrets if available, otherwise fall back to env vars."""
-    try:
-        import streamlit as st
-        val = st.secrets[key]
-        return str(val) if val else os.getenv(key, default)
-    except Exception:
-        return os.getenv(key, default)
-
 def _client_id() -> str:
-    return _secret("QB_CLIENT_ID")
+    return os.getenv("QB_CLIENT_ID", "")
 
 def _client_secret() -> str:
-    return _secret("QB_CLIENT_SECRET")
+    return os.getenv("QB_CLIENT_SECRET", "")
 
 def _redirect_uri() -> str:
-    return _secret("QB_REDIRECT_URI", "http://localhost:8501")
+    return os.getenv("QB_REDIRECT_URI", "http://localhost:8501")
 
 def _environment() -> str:
-    return _secret("QB_ENVIRONMENT", "sandbox")
+    return os.getenv("QB_ENVIRONMENT", "sandbox")
 TOKEN_PATH = Path(os.getenv("TOKEN_PATH", "./data/qb_tokens.json"))
 
 def _base_url() -> str:
