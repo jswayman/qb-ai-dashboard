@@ -324,7 +324,7 @@ Answer the user's question using this data. Be concise and specific with numbers
         messages.append(msg)
         for tc in msg.tool_calls:
             fn_name = tc.function.name
-            fn_args = json.loads(tc.function.arguments or "{}")
+            fn_args = json.loads(tc.function.arguments or "{}") or {}
             handler = TOOL_MAP.get(fn_name)
             result = handler(fn_args) if handler else {"error": f"Unknown tool: {fn_name}"}
             tool_results_accumulated.append(result)
