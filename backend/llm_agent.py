@@ -120,6 +120,100 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_monthly_cashflow",
+            "description": "Return monthly revenue vs expenses for a given year — useful for grouped bar chart comparisons.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year": {"type": "integer", "description": "Four-digit year. Defaults to current year."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_customers_by_revenue",
+            "description": "Return top customers ranked by total invoiced amount.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Top N customers. Default 10."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_invoice_status_breakdown",
+            "description": "Return count and value of invoices broken down by status (paid vs open).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_vendors",
+            "description": "Return top vendors by total spend from expenses.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Top N vendors. Default 10."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_bills_trend",
+            "description": "Return monthly bills trend for a given year.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year": {"type": "integer", "description": "Four-digit year. Defaults to current year."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cash_balance",
+            "description": "Return current balances for bank and asset accounts.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_recent_open_invoices",
+            "description": "Return a table of the most recent open/unpaid invoices sorted by due date.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of invoices to return. Default 10."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_overdue_bills_detail",
+            "description": "Return a table of overdue unpaid bills with days overdue.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of bills to return. Default 10."},
+                },
+            },
+        },
+    },
 ]
 
 
@@ -215,11 +309,188 @@ def _tool_get_expense_breakdown(group_by: str = "vendor", limit: int = 10, **kwa
         return {"error": str(e)}
 
 
+def _tool_get_monthly_cashflow(year: Optional[int] = None, **kwargs) -> dict:
+    """Return monthly revenue vs expenses side-by-side for grouped bar chart."""
+    import datetime
+    year = year or datetime.date.today().year
+    try:
+        rev = db.run_sql(f"""
+            SELECT strftime('%Y-%m', txn_date) as month, SUM(total_amt) as revenue
+            FROM invoices WHERE txn_date LIKE '{year}%'
+            GROUP BY month ORDER BY month
+        """)
+        exp = db.run_sql(f"""
+            SELECT strftime('%Y-%m', txn_date) as month, SUM(total_amt) as expenses
+            FROM expenses WHERE txn_date LIKE '{year}%'
+            GROUP BY month ORDER BY month
+        """)
+        merged = rev.merge(exp, on="month", how="outer").fillna(0).sort_values("month")
+        return {
+            "data": merged.to_dict(orient="records"),
+            "chart_type": "bar",
+            "x_col": "month",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_top_customers_by_revenue(limit: int = 10, **kwargs) -> dict:
+    """Return top customers ranked by total invoiced amount."""
+    try:
+        df = db.run_sql(f"""
+            SELECT customer_name as customer, SUM(total_amt) as total_invoiced
+            FROM invoices
+            WHERE customer_name IS NOT NULL
+            GROUP BY customer_name
+            ORDER BY total_invoiced DESC
+            LIMIT {limit}
+        """)
+        return {
+            "data": df.to_dict(orient="records"),
+            "chart_type": "bar",
+            "x_col": "customer",
+            "y_col": "total_invoiced",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_invoice_status_breakdown(**kwargs) -> dict:
+    """Return count of invoices by status (paid vs open)."""
+    try:
+        df = db.run_sql("""
+            SELECT status, COUNT(*) as count, SUM(total_amt) as total_value
+            FROM invoices
+            GROUP BY status
+        """)
+        return {
+            "data": df.to_dict(orient="records"),
+            "chart_type": "pie",
+            "x_col": "status",
+            "y_col": "count",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_top_vendors(limit: int = 10, **kwargs) -> dict:
+    """Return top vendors by total spend from expenses."""
+    try:
+        df = db.run_sql(f"""
+            SELECT vendor_name as vendor, SUM(total_amt) as total_spend
+            FROM expenses
+            WHERE vendor_name IS NOT NULL
+            GROUP BY vendor_name
+            ORDER BY total_spend DESC
+            LIMIT {limit}
+        """)
+        return {
+            "data": df.to_dict(orient="records"),
+            "chart_type": "bar",
+            "x_col": "vendor",
+            "y_col": "total_spend",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_bills_trend(year: Optional[int] = None, **kwargs) -> dict:
+    """Return monthly bills trend for a given year."""
+    import datetime
+    year = year or datetime.date.today().year
+    try:
+        df = db.run_sql(f"""
+            SELECT strftime('%Y-%m', txn_date) as month, SUM(total_amt) as bills
+            FROM bills WHERE txn_date LIKE '{year}%'
+            GROUP BY month ORDER BY month
+        """)
+        return {
+            "data": df.to_dict(orient="records"),
+            "chart_type": "line",
+            "x_col": "month",
+            "y_col": "bills",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_cash_balance(**kwargs) -> dict:
+    """Return current balances for bank and asset accounts."""
+    try:
+        df = db.run_sql("""
+            SELECT name as account, current_balance as balance
+            FROM accounts
+            WHERE account_type IN ('Bank', 'Other Current Asset', 'Fixed Asset')
+              AND active = 1
+              AND current_balance != 0
+            ORDER BY balance DESC
+            LIMIT 15
+        """)
+        total = float(df["balance"].sum()) if not df.empty else 0.0
+        return {
+            "data": df.to_dict(orient="records"),
+            "total_cash": total,
+            "chart_type": "bar",
+            "x_col": "account",
+            "y_col": "balance",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_recent_open_invoices(limit: int = 10, **kwargs) -> dict:
+    """Return most recent open invoices sorted by due date."""
+    try:
+        df = db.run_sql(f"""
+            SELECT doc_number, txn_date, due_date, customer_name, total_amt, balance
+            FROM invoices
+            WHERE status = 'open'
+            ORDER BY due_date ASC
+            LIMIT {limit}
+        """)
+        return {"data": df.to_dict(orient="records")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_overdue_bills_detail(limit: int = 10, **kwargs) -> dict:
+    """Return overdue unpaid bills sorted by days overdue."""
+    try:
+        df = db.run_sql(f"""
+            SELECT doc_number, txn_date, due_date, vendor_name, total_amt, balance,
+                   CAST(julianday('now') - julianday(due_date) AS INTEGER) as days_overdue
+            FROM bills
+            WHERE balance > 0 AND due_date < date('now')
+            ORDER BY days_overdue DESC
+            LIMIT {limit}
+        """)
+        return {"data": df.to_dict(orient="records")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_accounts_receivable_balance(**kwargs) -> dict:
+    """Return total AR balance from open invoices."""
+    try:
+        df = db.run_sql("SELECT COALESCE(SUM(balance), 0) as ar_balance FROM invoices WHERE status = 'open'")
+        return {"ar_balance": float(df["ar_balance"].iloc[0])}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 TOOL_MAP = {
     "query_financials": lambda args: _tool_query_financials(**args),
     "get_kpi_summary": lambda args: _tool_get_kpi_summary(),
     "get_revenue_trend": lambda args: _tool_get_revenue_trend(**args),
     "get_expense_breakdown": lambda args: _tool_get_expense_breakdown(**args),
+    "get_monthly_cashflow": lambda args: _tool_get_monthly_cashflow(**args),
+    "get_top_customers_by_revenue": lambda args: _tool_get_top_customers_by_revenue(**args),
+    "get_invoice_status_breakdown": lambda args: _tool_get_invoice_status_breakdown(),
+    "get_top_vendors": lambda args: _tool_get_top_vendors(**args),
+    "get_bills_trend": lambda args: _tool_get_bills_trend(**args),
+    "get_cash_balance": lambda args: _tool_get_cash_balance(),
+    "get_recent_open_invoices": lambda args: _tool_get_recent_open_invoices(**args),
+    "get_overdue_bills_detail": lambda args: _tool_get_overdue_bills_detail(**args),
 }
 
 
