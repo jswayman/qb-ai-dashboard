@@ -4,12 +4,12 @@ Call sync_all() to refresh. Progress is reported via a callback so
 Streamlit can display it in real time.
 """
 
-from typing import Callable
+from typing import Callable, Optional
 
 from . import db, qb_client
 
 
-def sync_all(progress_cb: Callable[[str], None] | None = None) -> dict:
+def sync_all(progress_cb: Optional[Callable[[str], None]] = None) -> dict:
     """
     Sync all supported QB entities to local SQLite.
     Returns a dict of {entity: row_count}.

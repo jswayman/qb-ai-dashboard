@@ -12,6 +12,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -20,10 +21,18 @@ from intuitlib.enums import Scopes
 
 load_dotenv()
 
-CLIENT_ID = os.getenv("QB_CLIENT_ID", "")
-CLIENT_SECRET = os.getenv("QB_CLIENT_SECRET", "")
-REDIRECT_URI = os.getenv("QB_REDIRECT_URI", "http://localhost:8501/callback")
-ENVIRONMENT = os.getenv("QB_ENVIRONMENT", "sandbox")
+def _secret(key: str, default: str = "") -> str:
+    """Read from Streamlit secrets if available, otherwise fall back to env vars."""
+    try:
+        import streamlit as st
+        return st.secrets.get(key, os.getenv(key, default))
+    except Exception:
+        return os.getenv(key, default)
+
+CLIENT_ID = _secret("QB_CLIENT_ID")
+CLIENT_SECRET = _secret("QB_CLIENT_SECRET")
+REDIRECT_URI = _secret("QB_REDIRECT_URI", "http://localhost:8501")
+ENVIRONMENT = _secret("QB_ENVIRONMENT", "sandbox")
 TOKEN_PATH = Path(os.getenv("TOKEN_PATH", "./data/qb_tokens.json"))
 
 BASE_URL = (
@@ -67,7 +76,7 @@ def _save_tokens(tokens: dict):
     TOKEN_PATH.write_text(json.dumps(tokens, indent=2))
 
 
-def _load_tokens() -> dict | None:
+def _load_tokens() -> Optional[dict]:
     if not TOKEN_PATH.exists():
         return None
     return json.loads(TOKEN_PATH.read_text())
@@ -89,7 +98,7 @@ def is_authenticated() -> bool:
     return _load_tokens() is not None
 
 
-def _get(endpoint: str, params: dict | None = None) -> dict:
+def _get(endpoint: str, params: Optional[dict] = None) -> dict:
     tokens = _load_tokens()
     if not tokens:
         raise RuntimeError("Not authenticated. Complete OAuth2 flow first.")

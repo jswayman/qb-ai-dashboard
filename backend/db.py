@@ -7,6 +7,7 @@ can query them directly with SQL via the tools in llm_agent.py.
 
 import os
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -20,7 +21,7 @@ Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 
 
-def _exec(sql: str, params: dict | None = None):
+def _exec(sql: str, params: Optional[dict] = None):
     with engine.begin() as conn:
         conn.execute(text(sql), params or {})
 

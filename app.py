@@ -24,6 +24,7 @@ from backend import db, qb_client, sync
 from backend.llm_agent import chat
 
 load_dotenv()
+db.init_schema()
 
 st.set_page_config(
     page_title="QB AI Dashboard",
@@ -60,6 +61,20 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "sync_done" not in st.session_state:
     st.session_state.sync_done = False
+
+# ─── Auto-handle OAuth2 callback ─────────────────────────────────────────────
+# When Intuit redirects back, the URL contains ?code=...&realmId=...
+# Streamlit exposes these via st.query_params — exchange them automatically.
+_params = st.query_params
+if "code" in _params and "realmId" in _params and not qb_client.is_authenticated():
+    with st.spinner("Completing QuickBooks connection..."):
+        try:
+            qb_client.exchange_code(_params["code"], _params["realmId"])
+            st.query_params.clear()
+            st.success("QuickBooks connected!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"OAuth exchange failed: {e}")
 
 
 # ─── Sidebar: Auth + Sync ─────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ Swapping the LLM backend:
 
 import json
 import os
+from typing import Optional
 
 import litellm
 import pandas as pd
@@ -22,9 +23,16 @@ from . import db
 
 load_dotenv()
 
-MODEL = os.getenv("LITELLM_MODEL", "ollama/llama3.2")
-API_BASE = os.getenv("LITELLM_API_BASE", "http://localhost:11434")
-API_KEY = os.getenv("LITELLM_API_KEY", "ollama")  # dummy value for local Ollama
+def _secret(key: str, default: str = "") -> str:
+    try:
+        import streamlit as st
+        return st.secrets.get(key, os.getenv(key, default))
+    except Exception:
+        return os.getenv(key, default)
+
+MODEL = _secret("LITELLM_MODEL", "ollama/llama3.2")
+API_BASE = _secret("LITELLM_API_BASE", "")
+API_KEY = _secret("LITELLM_API_KEY", "ollama")  # dummy value for local Ollama
 
 litellm.set_verbose = False
 
@@ -165,7 +173,7 @@ def _tool_get_kpi_summary() -> dict:
         return {"error": str(e)}
 
 
-def _tool_get_revenue_trend(year: int | None = None) -> dict:
+def _tool_get_revenue_trend(year: Optional[int] = None) -> dict:
     import datetime
     year = year or datetime.date.today().year
     try:
@@ -255,7 +263,7 @@ class AgentResponse:
         self.tool_results = tool_results  # each has data, chart_type, x_col, y_col
 
 
-def chat(question: str, history: list[dict] | None = None) -> AgentResponse:
+def chat(question: str, history: Optional[list] = None) -> AgentResponse:
     """
     Send a question to the LLM agent. Supports multi-turn via history.
     Returns AgentResponse with text and any chart data.
