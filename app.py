@@ -235,7 +235,7 @@ SUCCESS_COLOR = "#28a745"
 CHART_LAYOUT = dict(margin=dict(l=0, r=0, t=24, b=0), height=300, plot_bgcolor="rgba(0,0,0,0)")
 
 
-def _render_chart(result: dict):
+def _render_chart(result: dict, key: str = ""):
     """Render a chart from a tool result dict if chart data is present."""
     if not result or result.get("error") or not result.get("data"):
         return
@@ -247,6 +247,9 @@ def _render_chart(result: dict):
         if not df.empty:
             st.dataframe(df, use_container_width=True)
         return
+    # Use a hash of the data as a stable unique key when none is provided
+    import hashlib
+    chart_key = key or f"ai_chart_{hashlib.md5((chart_type + x_col + y_col + str(result.get('sql',''))).encode()).hexdigest()[:8]}"
     try:
         if chart_type == "bar" and x_col and y_col:
             fig = px.bar(df, x=x_col, y=y_col, color_discrete_sequence=[PRIMARY_COLOR])
@@ -260,7 +263,7 @@ def _render_chart(result: dict):
             st.dataframe(df, use_container_width=True)
             return
         fig.update_layout(**CHART_LAYOUT)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=chart_key)
     except Exception:
         st.dataframe(df, use_container_width=True)
 
@@ -343,7 +346,7 @@ with tab_overview:
                                      marker_color=DANGER_COLOR))
             fig.update_layout(**CHART_LAYOUT, barmode="group",
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="ov_cashflow")
         else:
             _no_data()
 
@@ -355,7 +358,7 @@ with tab_overview:
             fig = px.pie(df_ea, names="label", values="total",
                          color_discrete_sequence=CHART_COLORS, hole=0.35)
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="ov_exp_acct")
         else:
             _no_data()
 
@@ -371,7 +374,7 @@ with tab_overview:
             fig = px.line(df_trend, x="month", y="revenue", markers=True,
                           color_discrete_sequence=[PRIMARY_COLOR])
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="ov_rev_trend")
         else:
             _no_data()
 
@@ -383,7 +386,7 @@ with tab_overview:
             fig = px.pie(df_inv, names="status", values="count",
                          color_discrete_sequence=[SUCCESS_COLOR, DANGER_COLOR, "#ffc107"], hole=0.35)
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="ov_inv_status")
         else:
             _no_data()
 
@@ -404,7 +407,7 @@ with tab_revenue:
                           color_discrete_sequence=[PRIMARY_COLOR])
             fig.update_traces(fill="tozeroy", fillcolor="rgba(0,102,204,0.15)")
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="rev_monthly")
         else:
             _no_data()
 
@@ -417,7 +420,7 @@ with tab_revenue:
                          color_discrete_sequence=[PRIMARY_COLOR])
             fig.update_layout(**CHART_LAYOUT)
             fig.update_xaxes(tickangle=-30)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="rev_cash_bank")
             st.caption(f"Total: **{_fmt_currency(cash_data.get('total_cash', 0))}**")
         else:
             _no_data()
@@ -451,7 +454,7 @@ with tab_expenses:
                          color_discrete_sequence=[DANGER_COLOR])
             fig.update_layout(**CHART_LAYOUT)
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="exp_top_vendors")
         else:
             _no_data()
 
@@ -463,7 +466,7 @@ with tab_expenses:
             fig = px.pie(df_ea, names="label", values="total",
                          color_discrete_sequence=CHART_COLORS, hole=0.35)
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="exp_by_acct")
         else:
             _no_data()
 
@@ -479,7 +482,7 @@ with tab_expenses:
             fig = px.line(df_bt, x="month", y="bills", markers=True,
                           color_discrete_sequence=[DANGER_COLOR])
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="exp_bills_trend")
         else:
             _no_data()
 
@@ -491,7 +494,7 @@ with tab_expenses:
             fig = px.pie(df_ev, names="label", values="total",
                          color_discrete_sequence=px.colors.qualitative.Pastel, hole=0.35)
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="exp_by_vendor")
         else:
             _no_data()
 
@@ -524,7 +527,7 @@ with tab_customers:
                          color_discrete_sequence=[PRIMARY_COLOR])
             fig.update_layout(**CHART_LAYOUT)
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="cust_top_by_rev")
         else:
             _no_data()
 
@@ -537,7 +540,7 @@ with tab_customers:
                          color_discrete_sequence=["#6f42c1"])
             fig.update_layout(**CHART_LAYOUT)
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="cust_top_by_balance")
         else:
             _no_data()
 
@@ -553,7 +556,7 @@ with tab_customers:
                          color_discrete_sequence=[DANGER_COLOR])
             fig.update_layout(**CHART_LAYOUT)
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="cust_vendors_spend")
         else:
             _no_data()
 
@@ -564,7 +567,7 @@ with tab_customers:
             fig = px.pie(df_share, names="customer", values="total_invoiced",
                          color_discrete_sequence=CHART_COLORS, hole=0.35)
             fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="cust_rev_share")
         else:
             _no_data()
 
