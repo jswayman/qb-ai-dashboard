@@ -98,6 +98,14 @@ with st.sidebar:
 
     # OAuth2 flow
     st.subheader("1. Connect QuickBooks")
+
+    # Temporary debug — remove once working
+    _cid = os.environ.get("QB_CLIENT_ID", "")
+    if _cid:
+        st.caption(f"Client ID loaded: {_cid[:6]}...")
+    else:
+        st.error("QB_CLIENT_ID not found in secrets!")
+
     if qb_client.is_authenticated():
         st.markdown('<span class="status-badge badge-green">✓ Connected</span>', unsafe_allow_html=True)
     else:
