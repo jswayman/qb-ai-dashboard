@@ -312,7 +312,20 @@ Answer the user's question using this data. Be concise and specific with numbers
 
     # Agentic loop for models that support tool calling (Groq, OpenAI, etc.)
     for _ in range(5):
-        response = litellm.completion(**kwargs)
+        try:
+            response = litellm.completion(**kwargs)
+        except Exception as e:
+            # Model doesn't support tool calling — fall back to data injection
+            if "tool" in str(e).lower() or "function" in str(e).lower():
+                kpi = _tool_get_kpi_summary()
+                trend = _tool_get_revenue_trend()
+                breakdown = _tool_get_expense_breakdown()
+                context = f"QuickBooks data: KPIs={json.dumps(kpi)}, Revenue trend={json.dumps(trend.get('data',[]))}, Expenses={json.dumps(breakdown.get('data',[]))}\n\nAnswer: {question}"
+                fallback_kwargs = {k: v for k, v in kwargs.items() if k not in ("tools", "tool_choice")}
+                fallback_kwargs["messages"] = [{"role": "system", "content": _build_system_prompt()}, {"role": "user", "content": context}]
+                resp = litellm.completion(**fallback_kwargs)
+                return AgentResponse(text=resp.choices[0].message.content or "", tool_results=[kpi, trend, breakdown])
+            raise
         msg = response.choices[0].message
 
         if not msg.tool_calls:
