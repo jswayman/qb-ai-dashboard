@@ -113,7 +113,7 @@ def _get(endpoint: str, params: Optional[dict] = None) -> dict:
         raise RuntimeError("Not authenticated. Complete OAuth2 flow first.")
     tokens = _refresh_if_needed(tokens)
     realm_id = tokens["realm_id"]
-    url = f"{_base_url()/v3/company/{realm_id}/{endpoint}"
+    url = f"{_base_url()}/v3/company/{realm_id}/{endpoint}"
     headers = {
         "Authorization": f"Bearer {tokens['access_token']}",
         "Accept": "application/json",
@@ -171,7 +171,7 @@ def get_profit_and_loss(start_date: str = "2024-01-01", end_date: str = "2024-12
         raise RuntimeError("Not authenticated.")
     tokens = _refresh_if_needed(tokens)
     realm_id = tokens["realm_id"]
-    url = f"{_base_url()/v3/company/{realm_id}/reports/ProfitAndLoss"
+    url = f"{_base_url()}/v3/company/{realm_id}/reports/ProfitAndLoss"
     headers = {
         "Authorization": f"Bearer {tokens['access_token']}",
         "Accept": "application/json",
@@ -188,7 +188,7 @@ def get_balance_sheet(as_of_date: str = "2024-12-31") -> dict:
         raise RuntimeError("Not authenticated.")
     tokens = _refresh_if_needed(tokens)
     realm_id = tokens["realm_id"]
-    url = f"{_base_url()/v3/company/{realm_id}/reports/BalanceSheet"
+    url = f"{_base_url()}/v3/company/{realm_id}/reports/BalanceSheet"
     headers = {
         "Authorization": f"Bearer {tokens['access_token']}",
         "Accept": "application/json",
