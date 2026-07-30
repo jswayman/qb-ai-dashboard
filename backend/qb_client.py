@@ -25,29 +25,38 @@ def _secret(key: str, default: str = "") -> str:
     """Read from Streamlit secrets if available, otherwise fall back to env vars."""
     try:
         import streamlit as st
-        return st.secrets.get(key, os.getenv(key, default))
+        val = st.secrets[key]
+        return str(val) if val else os.getenv(key, default)
     except Exception:
         return os.getenv(key, default)
 
-CLIENT_ID = _secret("QB_CLIENT_ID")
-CLIENT_SECRET = _secret("QB_CLIENT_SECRET")
-REDIRECT_URI = _secret("QB_REDIRECT_URI", "http://localhost:8501")
-ENVIRONMENT = _secret("QB_ENVIRONMENT", "sandbox")
+def _client_id() -> str:
+    return _secret("QB_CLIENT_ID")
+
+def _client_secret() -> str:
+    return _secret("QB_CLIENT_SECRET")
+
+def _redirect_uri() -> str:
+    return _secret("QB_REDIRECT_URI", "http://localhost:8501")
+
+def _environment() -> str:
+    return _secret("QB_ENVIRONMENT", "sandbox")
 TOKEN_PATH = Path(os.getenv("TOKEN_PATH", "./data/qb_tokens.json"))
 
-BASE_URL = (
-    "https://sandbox-quickbooks.api.intuit.com"
-    if ENVIRONMENT == "sandbox"
-    else "https://quickbooks.api.intuit.com"
-)
+def _base_url() -> str:
+    return (
+        "https://sandbox-quickbooks.api.intuit.com"
+        if _environment() == "sandbox"
+        else "https://quickbooks.api.intuit.com"
+    )
 
 
 def _auth_client() -> AuthClient:
     return AuthClient(
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        redirect_uri=REDIRECT_URI,
-        environment=ENVIRONMENT,
+        client_id=_client_id(),
+        client_secret=_client_secret(),
+        redirect_uri=_redirect_uri(),
+        environment=_environment(),
     )
 
 
@@ -104,7 +113,7 @@ def _get(endpoint: str, params: Optional[dict] = None) -> dict:
         raise RuntimeError("Not authenticated. Complete OAuth2 flow first.")
     tokens = _refresh_if_needed(tokens)
     realm_id = tokens["realm_id"]
-    url = f"{BASE_URL}/v3/company/{realm_id}/{endpoint}"
+    url = f"{_base_url()/v3/company/{realm_id}/{endpoint}"
     headers = {
         "Authorization": f"Bearer {tokens['access_token']}",
         "Accept": "application/json",
@@ -162,7 +171,7 @@ def get_profit_and_loss(start_date: str = "2024-01-01", end_date: str = "2024-12
         raise RuntimeError("Not authenticated.")
     tokens = _refresh_if_needed(tokens)
     realm_id = tokens["realm_id"]
-    url = f"{BASE_URL}/v3/company/{realm_id}/reports/ProfitAndLoss"
+    url = f"{_base_url()/v3/company/{realm_id}/reports/ProfitAndLoss"
     headers = {
         "Authorization": f"Bearer {tokens['access_token']}",
         "Accept": "application/json",
@@ -179,7 +188,7 @@ def get_balance_sheet(as_of_date: str = "2024-12-31") -> dict:
         raise RuntimeError("Not authenticated.")
     tokens = _refresh_if_needed(tokens)
     realm_id = tokens["realm_id"]
-    url = f"{BASE_URL}/v3/company/{realm_id}/reports/BalanceSheet"
+    url = f"{_base_url()/v3/company/{realm_id}/reports/BalanceSheet"
     headers = {
         "Authorization": f"Bearer {tokens['access_token']}",
         "Accept": "application/json",
