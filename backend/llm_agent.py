@@ -23,9 +23,14 @@ from . import db
 
 load_dotenv()
 
-MODEL = os.getenv("LITELLM_MODEL", "ollama/llama3.2")
-API_BASE = os.getenv("LITELLM_API_BASE", "")
-API_KEY = os.getenv("LITELLM_API_KEY", "ollama")  # dummy value for local Ollama
+def _model() -> str:
+    return os.getenv("LITELLM_MODEL", "ollama/llama3.2")
+
+def _api_base() -> str:
+    return os.getenv("LITELLM_API_BASE", "")
+
+def _api_key() -> str:
+    return os.getenv("LITELLM_API_KEY", "ollama")  # dummy value for local Ollama
 
 litellm.set_verbose = False
 
@@ -268,18 +273,44 @@ def chat(question: str, history: Optional[list] = None) -> AgentResponse:
 
     tool_results_accumulated = []
 
-    kwargs = dict(
-        model=MODEL,
-        messages=messages,
-        tools=TOOLS,
-        tool_choice="auto",
-    )
-    if API_BASE:
-        kwargs["api_base"] = API_BASE
-    if API_KEY:
-        kwargs["api_key"] = API_KEY
+    model = _model()
+    api_base = _api_base()
+    api_key = _api_key()
 
-    # Agentic loop: keep going until no more tool calls
+    # Ollama models don't reliably support function calling —
+    # fall back to a plain prompt with the data injected directly.
+    use_tools = not model.startswith("ollama/")
+
+    kwargs = dict(model=model, messages=messages)
+    if use_tools:
+        kwargs["tools"] = TOOLS
+        kwargs["tool_choice"] = "auto"
+    if api_base:
+        kwargs["api_base"] = api_base
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    if not use_tools:
+        # For Ollama: run all pre-built tools and inject results into the prompt
+        kpi = _tool_get_kpi_summary()
+        trend = _tool_get_revenue_trend()
+        breakdown = _tool_get_expense_breakdown()
+        context = f"""
+Current QuickBooks data:
+- KPIs: {json.dumps(kpi)}
+- Revenue trend: {json.dumps(trend.get('data', []))}
+- Expense breakdown: {json.dumps(breakdown.get('data', []))}
+
+Answer the user's question using this data. Be concise and specific with numbers.
+"""
+        messages[-1]["content"] = context + "\n\nUser question: " + question
+        response = litellm.completion(**kwargs)
+        return AgentResponse(
+            text=response.choices[0].message.content or "",
+            tool_results=[kpi, trend, breakdown],
+        )
+
+    # Agentic loop for models that support tool calling (Groq, OpenAI, etc.)
     for _ in range(5):
         response = litellm.completion(**kwargs)
         msg = response.choices[0].message
@@ -290,26 +321,21 @@ def chat(question: str, history: Optional[list] = None) -> AgentResponse:
                 tool_results=tool_results_accumulated,
             )
 
-        # Execute each tool call
         messages.append(msg)
         for tc in msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments or "{}")
             handler = TOOL_MAP.get(fn_name)
-            if handler:
-                result = handler(fn_args)
-            else:
-                result = {"error": f"Unknown tool: {fn_name}"}
-
+            result = handler(fn_args) if handler else {"error": f"Unknown tool: {fn_name}"}
             tool_results_accumulated.append(result)
             messages.append({
                 "role": "tool",
-                "tool_call_id": tc.id,
+                "tool_call_id": tc.id or f"call_{fn_name}",
                 "content": json.dumps(result),
             })
         kwargs["messages"] = messages
 
     return AgentResponse(
-        text="Reached tool call limit. Please rephrase your question.",
+        text="I wasn't able to fully answer that. Try asking a more specific question.",
         tool_results=tool_results_accumulated,
     )
