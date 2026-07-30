@@ -236,14 +236,6 @@ for i, prompt in enumerate(EXAMPLE_PROMPTS):
     if cols[i % 3].button(prompt, use_container_width=True, key=f"eg_{i}"):
         st.session_state.pending_prompt = prompt
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
-        if "charts" in msg:
-            for chart in msg["charts"]:
-                _render_chart(chart)  # noqa: F821 — defined below
-
-
 def _render_chart(result: dict):
     """Render a chart from a tool result dict if chart data is present."""
     if result.get("error") or not result.get("data"):
@@ -272,6 +264,14 @@ def _render_chart(result: dict):
         st.plotly_chart(fig, use_container_width=True)
     except Exception:
         st.dataframe(df, use_container_width=True)
+
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+        if "charts" in msg:
+            for chart in msg["charts"]:
+                _render_chart(chart)
 
 
 # Handle example prompt click
