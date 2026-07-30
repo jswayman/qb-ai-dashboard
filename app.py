@@ -101,10 +101,12 @@ with st.sidebar:
 
     # Temporary debug — remove once working
     _cid = os.environ.get("QB_CLIENT_ID", "")
+    _uri = os.environ.get("QB_REDIRECT_URI", "NOT SET")
     if _cid:
-        st.caption(f"Client ID loaded: {_cid[:6]}...")
+        st.caption(f"Client ID: {_cid[:6]}...")
     else:
-        st.error("QB_CLIENT_ID not found in secrets!")
+        st.error("QB_CLIENT_ID not found!")
+    st.caption(f"Redirect URI: {_uri}")
 
     if qb_client.is_authenticated():
         st.markdown('<span class="status-badge badge-green">✓ Connected</span>', unsafe_allow_html=True)
