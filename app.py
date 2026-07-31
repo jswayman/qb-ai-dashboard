@@ -373,10 +373,10 @@ button[data-testid="stTab"][aria-selected="true"] {{
 ::-webkit-scrollbar-thumb:hover {{ background: {TEXT_3}; }}
 
 /* ── KPI detail buttons — subtle card-footer override ── */
-[data-testid="stMain"] button[kind="primary"],
-[data-testid="stMain"] button[data-testid="baseButton-primary"] {{
-    background: rgba(79,142,247,.07) !important;
-    color: {TEXT_3} !important;
+[data-testid="stMain"] button[kind="secondary"],
+[data-testid="stMain"] button[data-testid="baseButton-secondary"] {{
+    background: rgba(79,142,247,.06) !important;
+    color: {TEXT_2} !important;
     border: 1px solid {BORDER} !important;
     border-top: none !important;
     border-radius: 0 0 9px 9px !important;
@@ -389,8 +389,8 @@ button[data-testid="stTab"][aria-selected="true"] {{
     transition: background .15s, color .15s, border-color .15s !important;
     width: 100% !important;
 }}
-[data-testid="stMain"] button[kind="primary"]:hover,
-[data-testid="stMain"] button[data-testid="baseButton-primary"]:hover {{
+[data-testid="stMain"] button[kind="secondary"]:hover,
+[data-testid="stMain"] button[data-testid="baseButton-secondary"]:hover {{
     background: rgba(79,142,247,.14) !important;
     color: {ACCENT} !important;
     border-color: {BORDER_2} !important;
@@ -1243,7 +1243,7 @@ if kpis_cur:
                 unsafe_allow_html=True,
             )
             if st.button("Details →", key=f"kpi_det_{key}",
-                         use_container_width=True, type="primary"):
+                         use_container_width=True):
                 dlg_fn(*args)
 
 st.divider()
