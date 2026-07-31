@@ -19,5 +19,6 @@ venv/
 # macOS
 .DS_Store
 
-# Streamlit cache
-.streamlit/
+# Streamlit cache and secrets (but track config.toml)
+.streamlit/secrets.toml
+.streamlit/cache/

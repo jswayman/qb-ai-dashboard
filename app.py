@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import datetime
+import hashlib
 import os
 
 import pandas as pd
@@ -25,9 +26,6 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from backend import db, qb_client, sync
-
-# Data query functions live in queries.py — no litellm dependency.
-# The dashboard renders even if the AI backend is unavailable.
 from backend.queries import (
     _tool_get_bills_trend,
     _tool_get_cash_balance,
@@ -42,7 +40,6 @@ from backend.queries import (
     _tool_get_top_vendors,
 )
 
-# chat() depends on litellm — import lazily so a broken AI env doesn't crash the app.
 try:
     from backend.llm_agent import chat as _chat
     _ai_available = True
@@ -60,7 +57,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Copy Streamlit Cloud secrets into os.environ — must be after set_page_config.
 try:
     for _k, _v in st.secrets.items():
         if isinstance(_v, str):
@@ -70,42 +66,270 @@ except Exception:
 
 db.init_schema()
 
+
+# ─── Design tokens ────────────────────────────────────────────────────────────
+BG          = "#070C18"
+SURFACE     = "#0F1629"
+SURFACE_2   = "#182035"
+BORDER      = "#1E2D4F"
+BORDER_2    = "#2A3E6B"
+TEXT_1      = "#E2E8F8"
+TEXT_2      = "#8B9CC8"
+TEXT_3      = "#4A5680"
+ACCENT      = "#4F8EF7"
+GREEN       = "#34D399"
+RED         = "#F87171"
+AMBER       = "#FBBF24"
+VIOLET      = "#A78BFA"
+
+CHART_COLORS = [ACCENT, GREEN, RED, AMBER, VIOLET, "#F472B6", "#22D3EE", "#FB923C"]
+
+
 # ─── Custom CSS ───────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <style>
-    .stChatMessage { border-radius: 12px; }
-    .metric-card {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border-radius: 12px;
-        padding: 20px 16px;
-        border-left: 4px solid #0066cc;
-        margin-bottom: 8px;
-    }
-    .metric-card-danger { border-left-color: #dc3545; }
-    .metric-card-success { border-left-color: #28a745; }
-    .metric-card-warning { border-left-color: #ffc107; }
-    .status-badge {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    .badge-green { background: #d4edda; color: #155724; }
-    .badge-red   { background: #f8d7da; color: #721c24; }
-    .section-header {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #2c3e50;
-        margin-bottom: 4px;
-    }
-    div[data-testid="stTabs"] button { font-weight: 500; }
-    .stDataFrame { border-radius: 8px; }
+/* ── Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+html, body, [class*="css"], * {{
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}}
+
+/* ── App shell ── */
+[data-testid="stAppViewContainer"] {{
+    background: {BG} !important;
+}}
+[data-testid="stMain"] .block-container {{
+    padding-top: 1.5rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 100% !important;
+}}
+[data-testid="stHeader"] {{
+    background: {BG} !important;
+    border-bottom: 1px solid {BORDER};
+}}
+[data-testid="stToolbar"] {{
+    right: 1rem !important;
+}}
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {{
+    background: {SURFACE} !important;
+    border-right: 1px solid {BORDER} !important;
+}}
+[data-testid="stSidebar"] * {{
+    color: {TEXT_2} !important;
+}}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {{
+    color: {TEXT_1} !important;
+}}
+[data-testid="stSidebar"] .stButton > button {{
+    background: {ACCENT} !important;
+    color: #fff !important;
+    border: none !important;
+    font-weight: 600 !important;
+    border-radius: 7px !important;
+    transition: opacity .15s ease !important;
+}}
+[data-testid="stSidebar"] .stButton > button:hover {{
+    opacity: .85 !important;
+}}
+
+/* ── Page title ── */
+h1 {{
+    color: {TEXT_1} !important;
+    font-weight: 600 !important;
+    font-size: 1.45rem !important;
+    letter-spacing: -0.025em !important;
+    margin-bottom: 0.25rem !important;
+}}
+
+/* ── Dividers ── */
+hr {{
+    border: none !important;
+    border-top: 1px solid {BORDER} !important;
+    margin: 1.25rem 0 !important;
+}}
+
+/* ── Tabs ── */
+[data-testid="stTabs"] > div:first-child {{
+    border-bottom: 1px solid {BORDER};
+    gap: 0;
+}}
+button[data-testid="stTab"] {{
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    color: {TEXT_3} !important;
+    padding: 0.5rem 1.1rem !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    transition: color .15s ease, border-color .15s ease !important;
+    letter-spacing: 0.01em !important;
+}}
+button[data-testid="stTab"]:hover {{
+    color: {TEXT_2} !important;
+    background: rgba(79,142,247,.05) !important;
+}}
+button[data-testid="stTab"][aria-selected="true"] {{
+    color: {ACCENT} !important;
+    border-bottom-color: {ACCENT} !important;
+    background: transparent !important;
+    font-weight: 600 !important;
+}}
+
+/* ── KPI grid ── */
+.kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin: 0 0 0.25rem;
+}}
+@media (max-width: 1280px) {{ .kpi-grid {{ grid-template-columns: repeat(3, 1fr); }} }}
+@media (max-width:  768px) {{ .kpi-grid {{ grid-template-columns: repeat(2, 1fr); }} }}
+
+.kpi-card {{
+    background: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+    padding: 14px 16px 12px;
+    position: relative;
+    transition: border-color .2s ease;
+}}
+.kpi-card:hover {{ border-color: {BORDER_2}; }}
+.kpi-card.accent-green {{ border-top: 2px solid {GREEN}; }}
+.kpi-card.accent-red   {{ border-top: 2px solid {RED};   }}
+.kpi-card.accent-blue  {{ border-top: 2px solid {ACCENT}; }}
+.kpi-card.accent-amber {{ border-top: 2px solid {AMBER};  }}
+
+.kpi-label {{
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: {TEXT_3};
+    margin-bottom: 7px;
+}}
+.kpi-value {{
+    font-size: 1.55rem;
+    font-weight: 600;
+    color: {TEXT_1};
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}}
+.kpi-delta {{
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 6px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+}}
+.kpi-delta.pos  {{ color: {GREEN}; background: rgba(52,211,153,.1); }}
+.kpi-delta.neg  {{ color: {RED};   background: rgba(248,113,113,.1); }}
+.kpi-delta.warn {{ color: {AMBER}; background: rgba(251,191,36,.1); }}
+.kpi-delta.mute {{ color: {TEXT_3}; background: rgba(74,86,128,.12); }}
+
+/* ── Section headers ── */
+.chart-title {{
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: {TEXT_3};
+    margin: 0 0 0.5rem;
+    padding: 0;
+}}
+
+/* ── Empty state ── */
+.empty-state {{
+    color: {TEXT_3};
+    font-size: 0.82rem;
+    padding: 2rem 1rem;
+    text-align: center;
+    border: 1px dashed {BORDER};
+    border-radius: 8px;
+    margin: 0.25rem 0;
+}}
+
+/* ── Status badges ── */
+.status-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}}
+.badge-green {{
+    background: rgba(52,211,153,.12);
+    color: {GREEN};
+    border: 1px solid rgba(52,211,153,.25);
+}}
+.badge-red {{
+    background: rgba(248,113,113,.12);
+    color: {RED};
+    border: 1px solid rgba(248,113,113,.25);
+}}
+
+/* ── DataFrames ── */
+[data-testid="stDataFrame"] {{
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid {BORDER} !important;
+}}
+[data-testid="stDataFrame"] * {{
+    font-variant-numeric: tabular-nums;
+}}
+
+/* ── Chat ── */
+[data-testid="stChatMessage"] {{
+    background: {SURFACE} !important;
+    border: 1px solid {BORDER} !important;
+    border-radius: 10px !important;
+}}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {{
+    background: {SURFACE} !important;
+    border: 1px solid {BORDER} !important;
+    border-radius: 8px !important;
+}}
+
+/* ── Metrics (fallback, used nowhere now) ── */
+[data-testid="stMetric"] {{
+    background: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+    padding: 14px 16px !important;
+}}
+[data-testid="stMetricLabel"] {{ color: {TEXT_3} !important; font-size: 0.72rem !important; }}
+[data-testid="stMetricValue"] {{ color: {TEXT_1} !important; font-size: 1.55rem !important; }}
+[data-testid="stMetricDelta"] {{ font-size: 0.72rem !important; }}
+
+/* ── Caption / small text ── */
+.stCaption, small {{ color: {TEXT_3} !important; }}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+::-webkit-scrollbar-track {{ background: {BG}; }}
+::-webkit-scrollbar-thumb {{ background: {BORDER_2}; border-radius: 3px; }}
+::-webkit-scrollbar-thumb:hover {{ background: {TEXT_3}; }}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ─── Session state init ───────────────────────────────────────────────────────
+# ─── Session state ────────────────────────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "sync_done" not in st.session_state:
@@ -113,7 +337,8 @@ if "sync_done" not in st.session_state:
 if "dashboard_year" not in st.session_state:
     st.session_state.dashboard_year = datetime.date.today().year
 
-# ─── Auto-handle OAuth2 callback ─────────────────────────────────────────────
+
+# ─── OAuth2 callback ──────────────────────────────────────────────────────────
 _params = st.query_params
 if "code" in _params and "realmId" in _params and not qb_client.is_authenticated():
     with st.spinner("Completing QuickBooks connection..."):
@@ -126,18 +351,17 @@ if "code" in _params and "realmId" in _params and not qb_client.is_authenticated
             st.error(f"OAuth exchange failed: {e}")
 
 
-# ─── Sidebar: Auth + Sync ─────────────────────────────────────────────────────
+# ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.image(
         "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/QuickBooks_logo.svg/200px-QuickBooks_logo.svg.png",
-        width=140,
+        width=130,
     )
     st.title("QB AI Dashboard")
-    st.caption("Powered by LiteLLM + Ollama")
+    st.caption("Financial intelligence, powered by AI")
     st.divider()
 
     st.subheader("1. Connect QuickBooks")
-
     _cid = os.environ.get("QB_CLIENT_ID", "")
     _uri = os.environ.get("QB_REDIRECT_URI", "NOT SET")
     if _cid:
@@ -147,7 +371,7 @@ with st.sidebar:
     st.caption(f"Redirect URI: {_uri}")
 
     if qb_client.is_authenticated():
-        st.markdown('<span class="status-badge badge-green">✓ Connected</span>', unsafe_allow_html=True)
+        st.markdown('<span class="status-badge badge-green">&#10003; Connected</span>', unsafe_allow_html=True)
     else:
         st.markdown('<span class="status-badge badge-red">Not connected</span>', unsafe_allow_html=True)
         try:
@@ -171,18 +395,18 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-
     st.subheader("2. Sync Data")
     sync_status = db.get_sync_status() if qb_client.is_authenticated() else None
     if sync_status is not None and not sync_status.empty:
-        st.dataframe(sync_status[["entity", "last_sync", "row_count"]], hide_index=True, use_container_width=True)
+        st.dataframe(sync_status[["entity", "last_sync", "row_count"]],
+                     hide_index=True, use_container_width=True)
 
     if qb_client.is_authenticated():
         if st.button("Sync Now", type="primary", use_container_width=True):
             log_container = st.empty()
-            log_lines = []
+            log_lines: list[str] = []
 
-            def progress(msg):
+            def progress(msg: str) -> None:
                 log_lines.append(msg)
                 log_container.code("\n".join(log_lines))
 
@@ -191,27 +415,24 @@ with st.sidebar:
             st.success("Sync complete!")
             st.rerun()
     else:
-        st.button("Sync Now", disabled=True, use_container_width=True, help="Connect QuickBooks first")
+        st.button("Sync Now", disabled=True, use_container_width=True,
+                  help="Connect QuickBooks first")
 
     st.divider()
-
-    # Year selector — affects all trend charts
-    st.subheader("3. Dashboard Settings")
+    st.subheader("3. Settings")
     current_year = datetime.date.today().year
     st.session_state.dashboard_year = st.selectbox(
         "Trend year",
         options=list(range(current_year, current_year - 6, -1)),
         index=0,
     )
-
     st.divider()
-    st.caption("Data stored locally in SQLite. Nothing leaves your machine except QB API calls.")
+    st.caption("Data stored locally in SQLite.")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _safe(fn, *args, **kwargs):
-    """Call a data function and return its result, or None on any error."""
     try:
         result = fn(*args, **kwargs)
         return None if "error" in result else result
@@ -221,22 +442,77 @@ def _safe(fn, *args, **kwargs):
 
 def _fmt_currency(val: float) -> str:
     if abs(val) >= 1_000_000:
-        return f"${val/1_000_000:.1f}M"
+        return f"${val/1_000_000:.2f}M"
     if abs(val) >= 1_000:
         return f"${val/1_000:.1f}K"
     return f"${val:,.0f}"
 
 
-CHART_COLORS = px.colors.qualitative.Set2
-PRIMARY_COLOR = "#0066cc"
-DANGER_COLOR = "#dc3545"
-SUCCESS_COLOR = "#28a745"
-
-CHART_LAYOUT = dict(margin=dict(l=0, r=0, t=24, b=0), height=300, plot_bgcolor="rgba(0,0,0,0)")
+def _section(title: str) -> None:
+    st.markdown(f'<p class="chart-title">{title}</p>', unsafe_allow_html=True)
 
 
-def _render_chart(result: dict, key: str = ""):
-    """Render a chart from a tool result dict if chart data is present."""
+def _no_data(msg: str = "No data yet — sync QuickBooks to populate.") -> None:
+    st.markdown(f'<div class="empty-state">{msg}</div>', unsafe_allow_html=True)
+
+
+def _theme_fig(fig: go.Figure, height: int = 300) -> go.Figure:
+    """Apply the executive dark theme to any Plotly figure."""
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, -apple-system, sans-serif", color=TEXT_2, size=11),
+        margin=dict(l=0, r=0, t=28, b=0),
+        height=height,
+        legend=dict(
+            bgcolor="rgba(0,0,0,0)",
+            bordercolor=BORDER,
+            font=dict(color=TEXT_2, size=11),
+        ),
+        hoverlabel=dict(
+            bgcolor=SURFACE_2,
+            bordercolor=BORDER_2,
+            font=dict(color=TEXT_1, size=12),
+        ),
+        colorway=CHART_COLORS,
+    )
+    fig.update_xaxes(
+        gridcolor=BORDER,
+        linecolor=BORDER,
+        tickcolor=TEXT_3,
+        tickfont=dict(color=TEXT_2),
+        zerolinecolor=BORDER,
+    )
+    fig.update_yaxes(
+        gridcolor=BORDER,
+        linecolor=BORDER,
+        tickcolor=TEXT_3,
+        tickfont=dict(color=TEXT_2),
+        zerolinecolor=BORDER,
+    )
+    return fig
+
+
+def _kpi_card(label: str, value: str, delta: str = "", delta_cls: str = "mute") -> str:
+    accent_map = {
+        "pos": "accent-green",
+        "neg": "accent-red",
+        "warn": "accent-amber",
+        "mute": "accent-blue",
+    }
+    top_cls = accent_map.get(delta_cls, "accent-blue")
+    delta_html = (
+        f'<div class="kpi-delta {delta_cls}">{delta}</div>' if delta else ""
+    )
+    return f"""
+    <div class="kpi-card {top_cls}">
+        <div class="kpi-label">{label}</div>
+        <div class="kpi-value">{value}</div>
+        {delta_html}
+    </div>"""
+
+
+def _render_chart(result: dict, key: str = "") -> None:
     if not result or result.get("error") or not result.get("data"):
         return
     chart_type = result.get("chart_type", "none")
@@ -247,82 +523,79 @@ def _render_chart(result: dict, key: str = ""):
         if not df.empty:
             st.dataframe(df, use_container_width=True)
         return
-    # Use a hash of the data as a stable unique key when none is provided
-    import hashlib
-    chart_key = key or f"ai_chart_{hashlib.md5((chart_type + x_col + y_col + str(result.get('sql',''))).encode()).hexdigest()[:8]}"
+    chart_key = key or f"ai_{hashlib.md5((chart_type+x_col+y_col+str(result.get('sql',''))).encode()).hexdigest()[:8]}"
     try:
         if chart_type == "bar" and x_col and y_col:
-            fig = px.bar(df, x=x_col, y=y_col, color_discrete_sequence=[PRIMARY_COLOR])
+            fig = px.bar(df, x=x_col, y=y_col, color_discrete_sequence=[ACCENT])
         elif chart_type == "line" and x_col and y_col:
             fig = px.line(df, x=x_col, y=y_col, markers=True,
-                          color_discrete_sequence=[PRIMARY_COLOR])
+                          color_discrete_sequence=[ACCENT])
         elif chart_type == "pie" and x_col and y_col:
             fig = px.pie(df, names=x_col, values=y_col,
-                         color_discrete_sequence=CHART_COLORS)
+                         color_discrete_sequence=CHART_COLORS, hole=0.35)
         else:
             st.dataframe(df, use_container_width=True)
             return
-        fig.update_layout(**CHART_LAYOUT)
-        st.plotly_chart(fig, use_container_width=True, key=chart_key)
+        st.plotly_chart(_theme_fig(fig), use_container_width=True, key=chart_key)
     except Exception:
         st.dataframe(df, use_container_width=True)
 
 
-def _no_data(msg: str = "No data yet — sync QuickBooks to populate."):
-    st.caption(f"_{msg}_")
-
-
-# ─── Main content ─────────────────────────────────────────────────────────────
-st.title("📊 QuickBooks AI Dashboard")
+# ─── Page header ──────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;">
+  <span style="font-size:1.4rem;font-weight:700;color:#E2E8F8;letter-spacing:-0.025em;">
+    QuickBooks AI Dashboard
+  </span>
+  <span style="font-size:0.72rem;font-weight:500;color:#4A5680;margin-top:3px;">
+    Executive Overview
+  </span>
+</div>
+""", unsafe_allow_html=True)
 
 if not qb_client.is_authenticated():
     st.info("Connect your QuickBooks account in the sidebar to get started.")
 
-# ─── KPI Row (always rendered when connected) ─────────────────────────────────
-kpis = _safe(_tool_get_kpi_summary)
-cash_data = _safe(_tool_get_cash_balance)
 
-year = st.session_state.dashboard_year
+# ─── KPI Row ──────────────────────────────────────────────────────────────────
+kpis      = _safe(_tool_get_kpi_summary)
+cash_data = _safe(_tool_get_cash_balance)
+year      = st.session_state.dashboard_year
 
 if kpis:
     total_cash = cash_data.get("total_cash", 0.0) if cash_data else 0.0
-    ar_balance = sum(
-        r.get("balance", 0) for r in (_safe(_tool_get_recent_open_invoices, limit=500) or {}).get("data", [])
-    )
+    net        = kpis["net_income"]
+    overdue    = kpis["overdue_bills"]
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Total Revenue", _fmt_currency(kpis["total_revenue"]))
-    k2.metric("Total Expenses", _fmt_currency(kpis["total_expenses"]))
-
-    net = kpis["net_income"]
-    k3.metric(
-        "Net Income",
-        _fmt_currency(net),
-        delta="profit" if net >= 0 else "loss",
-        delta_color="normal" if net >= 0 else "inverse",
-    )
-    k4.metric("Cash & Bank", _fmt_currency(total_cash))
-    k5.metric(
-        "Open Invoices",
-        kpis["open_invoices"],
-        delta=f"${kpis.get('open_invoice_value', 0):,.0f} AR" if kpis.get("open_invoice_value") else None,
-    )
-    k6.metric(
-        "Overdue Bills",
-        kpis["overdue_bills"],
-        delta="overdue" if kpis["overdue_bills"] > 0 else None,
-        delta_color="inverse" if kpis["overdue_bills"] > 0 else "normal",
-    )
+    cards = "".join([
+        _kpi_card("Total Revenue",   _fmt_currency(kpis["total_revenue"]),
+                  delta_cls="pos"),
+        _kpi_card("Total Expenses",  _fmt_currency(kpis["total_expenses"]),
+                  delta_cls="neg"),
+        _kpi_card("Net Income",      _fmt_currency(net),
+                  delta="Profit" if net >= 0 else "Loss",
+                  delta_cls="pos" if net >= 0 else "neg"),
+        _kpi_card("Cash & Bank",     _fmt_currency(total_cash),
+                  delta_cls="pos" if total_cash >= 0 else "neg"),
+        _kpi_card("Open Invoices",   str(kpis["open_invoices"]),
+                  delta=f"{kpis['open_invoices']} pending",
+                  delta_cls="warn" if kpis["open_invoices"] > 0 else "mute"),
+        _kpi_card("Overdue Bills",   str(overdue),
+                  delta=f"{overdue} overdue" if overdue > 0 else "All clear",
+                  delta_cls="neg" if overdue > 0 else "pos"),
+    ])
+    st.markdown(f'<div class="kpi-grid">{cards}</div>', unsafe_allow_html=True)
 
 st.divider()
 
+
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
 tab_overview, tab_revenue, tab_expenses, tab_customers, tab_ai = st.tabs([
-    "📈 Overview",
-    "💰 Revenue & Cash",
-    "🧾 Expenses & Payables",
-    "🤝 Customers & Vendors",
-    "🤖 AI Assistant",
+    "Overview",
+    "Revenue & Cash",
+    "Expenses & Payables",
+    "Customers & Vendors",
+    "AI Assistant",
 ])
 
 
@@ -333,32 +606,35 @@ with tab_overview:
     row1_l, row1_r = st.columns(2)
 
     with row1_l:
-        st.markdown('<p class="section-header">Monthly Revenue vs Expenses</p>', unsafe_allow_html=True)
+        _section("Revenue vs Expenses — Monthly")
         cashflow = _safe(_tool_get_monthly_cashflow, year=year)
         if cashflow and cashflow.get("data"):
             df_cf = pd.DataFrame(cashflow["data"])
             fig = go.Figure()
             if "revenue" in df_cf.columns:
                 fig.add_trace(go.Bar(name="Revenue", x=df_cf["month"], y=df_cf["revenue"],
-                                     marker_color=SUCCESS_COLOR))
+                                     marker_color=GREEN))
             if "expenses" in df_cf.columns:
                 fig.add_trace(go.Bar(name="Expenses", x=df_cf["month"], y=df_cf["expenses"],
-                                     marker_color=DANGER_COLOR))
-            fig.update_layout(**CHART_LAYOUT, barmode="group",
-                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                                     marker_color=RED))
+            _theme_fig(fig)
+            fig.update_layout(
+                barmode="group",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
             st.plotly_chart(fig, use_container_width=True, key="ov_cashflow")
         else:
             _no_data()
 
     with row1_r:
-        st.markdown('<p class="section-header">Expense Breakdown by Account</p>', unsafe_allow_html=True)
+        _section("Expense Breakdown by Account")
         exp_acct = _safe(_tool_get_expense_breakdown, group_by="account", limit=8)
         if exp_acct and exp_acct.get("data"):
             df_ea = pd.DataFrame(exp_acct["data"])
             fig = px.pie(df_ea, names="label", values="total",
-                         color_discrete_sequence=CHART_COLORS, hole=0.35)
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="ov_exp_acct")
+                         color_discrete_sequence=CHART_COLORS, hole=0.4)
+            fig.update_traces(textfont_color=TEXT_1, textfont_size=11)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="ov_exp_acct")
         else:
             _no_data()
 
@@ -366,27 +642,28 @@ with tab_overview:
     row2_l, row2_r = st.columns(2)
 
     with row2_l:
-        st.markdown('<p class="section-header">Revenue Trend ({year})</p>'.replace("{year}", str(year)),
-                    unsafe_allow_html=True)
+        _section(f"Revenue Trend — {year}")
         trend = _safe(_tool_get_revenue_trend, year=year)
         if trend and trend.get("data"):
             df_trend = pd.DataFrame(trend["data"])
-            fig = px.line(df_trend, x="month", y="revenue", markers=True,
-                          color_discrete_sequence=[PRIMARY_COLOR])
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="ov_rev_trend")
+            fig = px.area(df_trend, x="month", y="revenue",
+                          color_discrete_sequence=[ACCENT])
+            fig.update_traces(fill="tozeroy",
+                              fillcolor=f"rgba(79,142,247,0.12)",
+                              line_width=2)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="ov_rev_trend")
         else:
             _no_data()
 
     with row2_r:
-        st.markdown('<p class="section-header">Invoice Status</p>', unsafe_allow_html=True)
+        _section("Invoice Status")
         inv_status = _safe(_tool_get_invoice_status_breakdown)
         if inv_status and inv_status.get("data"):
             df_inv = pd.DataFrame(inv_status["data"])
             fig = px.pie(df_inv, names="status", values="count",
-                         color_discrete_sequence=[SUCCESS_COLOR, DANGER_COLOR, "#ffc107"], hole=0.35)
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="ov_inv_status")
+                         color_discrete_sequence=[GREEN, RED, AMBER], hole=0.4)
+            fig.update_traces(textfont_color=TEXT_1, textfont_size=11)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="ov_inv_status")
         else:
             _no_data()
 
@@ -398,36 +675,34 @@ with tab_revenue:
     row1_l, row1_r = st.columns(2)
 
     with row1_l:
-        st.markdown('<p class="section-header">Monthly Revenue ({year})</p>'.replace("{year}", str(year)),
-                    unsafe_allow_html=True)
+        _section(f"Monthly Revenue — {year}")
         trend = _safe(_tool_get_revenue_trend, year=year)
         if trend and trend.get("data"):
             df_trend = pd.DataFrame(trend["data"])
             fig = px.area(df_trend, x="month", y="revenue",
-                          color_discrete_sequence=[PRIMARY_COLOR])
-            fig.update_traces(fill="tozeroy", fillcolor="rgba(0,102,204,0.15)")
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="rev_monthly")
+                          color_discrete_sequence=[GREEN])
+            fig.update_traces(fill="tozeroy",
+                              fillcolor="rgba(52,211,153,0.10)",
+                              line_width=2)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="rev_monthly")
         else:
             _no_data()
 
     with row1_r:
-        st.markdown('<p class="section-header">Cash & Bank Balances</p>', unsafe_allow_html=True)
+        _section("Cash & Bank Balances")
         cash_data = _safe(_tool_get_cash_balance)
         if cash_data and cash_data.get("data"):
             df_cash = pd.DataFrame(cash_data["data"])
             fig = px.bar(df_cash, x="account", y="balance",
-                         color_discrete_sequence=[PRIMARY_COLOR])
-            fig.update_layout(**CHART_LAYOUT)
-            fig.update_xaxes(tickangle=-30)
-            st.plotly_chart(fig, use_container_width=True, key="rev_cash_bank")
+                         color_discrete_sequence=[ACCENT])
+            fig.update_layout(xaxis_tickangle=-30)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="rev_cash_bank")
             st.caption(f"Total: **{_fmt_currency(cash_data.get('total_cash', 0))}**")
         else:
             _no_data()
 
     st.divider()
-
-    st.markdown('<p class="section-header">Open Invoices (by due date)</p>', unsafe_allow_html=True)
+    _section("Open Invoices — by Due Date")
     open_inv = _safe(_tool_get_recent_open_invoices, limit=20)
     if open_inv and open_inv.get("data"):
         df_oi = pd.DataFrame(open_inv["data"])
@@ -446,27 +721,26 @@ with tab_expenses:
     row1_l, row1_r = st.columns(2)
 
     with row1_l:
-        st.markdown('<p class="section-header">Top Vendors by Spend</p>', unsafe_allow_html=True)
+        _section("Top Vendors by Spend")
         top_vendors = _safe(_tool_get_top_vendors, limit=10)
         if top_vendors and top_vendors.get("data"):
             df_tv = pd.DataFrame(top_vendors["data"])
             fig = px.bar(df_tv, x="total_spend", y="vendor", orientation="h",
-                         color_discrete_sequence=[DANGER_COLOR])
-            fig.update_layout(**CHART_LAYOUT)
+                         color_discrete_sequence=[RED])
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True, key="exp_top_vendors")
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="exp_top_vendors")
         else:
             _no_data()
 
     with row1_r:
-        st.markdown('<p class="section-header">Expense by Account</p>', unsafe_allow_html=True)
+        _section("Expense by Account")
         exp_acct = _safe(_tool_get_expense_breakdown, group_by="account", limit=10)
         if exp_acct and exp_acct.get("data"):
             df_ea = pd.DataFrame(exp_acct["data"])
             fig = px.pie(df_ea, names="label", values="total",
-                         color_discrete_sequence=CHART_COLORS, hole=0.35)
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="exp_by_acct")
+                         color_discrete_sequence=CHART_COLORS, hole=0.4)
+            fig.update_traces(textfont_color=TEXT_1, textfont_size=11)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="exp_by_acct")
         else:
             _no_data()
 
@@ -474,33 +748,31 @@ with tab_expenses:
     row2_l, row2_r = st.columns(2)
 
     with row2_l:
-        st.markdown('<p class="section-header">Monthly Bills ({year})</p>'.replace("{year}", str(year)),
-                    unsafe_allow_html=True)
+        _section(f"Monthly Bills — {year}")
         bills_trend = _safe(_tool_get_bills_trend, year=year)
         if bills_trend and bills_trend.get("data"):
             df_bt = pd.DataFrame(bills_trend["data"])
             fig = px.line(df_bt, x="month", y="bills", markers=True,
-                          color_discrete_sequence=[DANGER_COLOR])
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="exp_bills_trend")
+                          color_discrete_sequence=[RED])
+            fig.update_traces(line_width=2, marker_size=6)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="exp_bills_trend")
         else:
             _no_data()
 
     with row2_r:
-        st.markdown('<p class="section-header">Expense by Vendor (Pie)</p>', unsafe_allow_html=True)
+        _section("Expense by Vendor")
         exp_vendor = _safe(_tool_get_expense_breakdown, group_by="vendor", limit=8)
         if exp_vendor and exp_vendor.get("data"):
             df_ev = pd.DataFrame(exp_vendor["data"])
             fig = px.pie(df_ev, names="label", values="total",
-                         color_discrete_sequence=px.colors.qualitative.Pastel, hole=0.35)
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="exp_by_vendor")
+                         color_discrete_sequence=CHART_COLORS, hole=0.4)
+            fig.update_traces(textfont_color=TEXT_1, textfont_size=11)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="exp_by_vendor")
         else:
             _no_data()
 
     st.divider()
-
-    st.markdown('<p class="section-header">Overdue Bills</p>', unsafe_allow_html=True)
+    _section("Overdue Bills")
     overdue = _safe(_tool_get_overdue_bills_detail, limit=20)
     if overdue and overdue.get("data"):
         df_ob = pd.DataFrame(overdue["data"])
@@ -509,7 +781,7 @@ with tab_expenses:
         df_ob.columns = [c.replace("_", " ").title() for c in df_ob.columns]
         st.dataframe(df_ob, use_container_width=True, hide_index=True)
     else:
-        _no_data("No overdue bills. Great!")
+        _no_data("No overdue bills.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -519,28 +791,26 @@ with tab_customers:
     row1_l, row1_r = st.columns(2)
 
     with row1_l:
-        st.markdown('<p class="section-header">Top Customers by Revenue</p>', unsafe_allow_html=True)
+        _section("Top Customers by Revenue")
         top_cust_rev = _safe(_tool_get_top_customers_by_revenue, limit=10)
         if top_cust_rev and top_cust_rev.get("data"):
             df_tcr = pd.DataFrame(top_cust_rev["data"])
             fig = px.bar(df_tcr, x="total_invoiced", y="customer", orientation="h",
-                         color_discrete_sequence=[PRIMARY_COLOR])
-            fig.update_layout(**CHART_LAYOUT)
+                         color_discrete_sequence=[ACCENT])
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True, key="cust_top_by_rev")
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="cust_top_by_rev")
         else:
             _no_data()
 
     with row1_r:
-        st.markdown('<p class="section-header">Top Customers by Balance Owed</p>', unsafe_allow_html=True)
+        _section("Top Customers by Balance Owed")
         kpis_data = _safe(_tool_get_kpi_summary)
         if kpis_data and kpis_data.get("top_customers_by_balance"):
             df_tcb = pd.DataFrame(kpis_data["top_customers_by_balance"])
             fig = px.bar(df_tcb, x="balance", y="display_name", orientation="h",
-                         color_discrete_sequence=["#6f42c1"])
-            fig.update_layout(**CHART_LAYOUT)
+                         color_discrete_sequence=[VIOLET])
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True, key="cust_top_by_balance")
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="cust_top_by_balance")
         else:
             _no_data()
 
@@ -548,26 +818,25 @@ with tab_customers:
     row2_l, row2_r = st.columns(2)
 
     with row2_l:
-        st.markdown('<p class="section-header">Top Vendors by Total Spend</p>', unsafe_allow_html=True)
+        _section("Top Vendors by Spend")
         top_vendors = _safe(_tool_get_top_vendors, limit=10)
         if top_vendors and top_vendors.get("data"):
             df_tv = pd.DataFrame(top_vendors["data"])
             fig = px.bar(df_tv, x="total_spend", y="vendor", orientation="h",
-                         color_discrete_sequence=[DANGER_COLOR])
-            fig.update_layout(**CHART_LAYOUT)
+                         color_discrete_sequence=[RED])
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(fig, use_container_width=True, key="cust_vendors_spend")
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="cust_vendors_spend")
         else:
             _no_data()
 
     with row2_r:
-        st.markdown('<p class="section-header">Revenue Share by Customer</p>', unsafe_allow_html=True)
+        _section("Revenue Share by Customer")
         if top_cust_rev and top_cust_rev.get("data"):
             df_share = pd.DataFrame(top_cust_rev["data"])
             fig = px.pie(df_share, names="customer", values="total_invoiced",
-                         color_discrete_sequence=CHART_COLORS, hole=0.35)
-            fig.update_layout(**CHART_LAYOUT)
-            st.plotly_chart(fig, use_container_width=True, key="cust_rev_share")
+                         color_discrete_sequence=CHART_COLORS, hole=0.4)
+            fig.update_traces(textfont_color=TEXT_1, textfont_size=11)
+            st.plotly_chart(_theme_fig(fig), use_container_width=True, key="cust_rev_share")
         else:
             _no_data()
 
@@ -576,12 +845,12 @@ with tab_customers:
 # TAB 5 — AI ASSISTANT
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_ai:
-    st.subheader("💬 Ask Anything About Your Financials")
-    st.caption("The AI has access to all your synced QuickBooks data and can build custom visualizations.")
+    st.subheader("Ask Anything About Your Financials")
+    st.caption("The AI has access to all your synced QuickBooks data and can build custom visualizations on demand.")
 
     if not _ai_available:
         st.error(
-            f"AI assistant is unavailable — the LLM backend failed to load.\n\n"
+            f"AI assistant unavailable — the LLM backend failed to load.\n\n"
             f"Make sure `litellm` is installed and Ollama is running (`ollama serve`).\n\n"
             f"Error: `{_ai_err_msg}`"
         )
