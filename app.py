@@ -100,16 +100,16 @@ html, body, [class*="css"], * {{
     background: {BG} !important;
 }}
 [data-testid="stMain"] .block-container {{
-    padding-top: 1.5rem !important;
+    padding-top: 3.5rem !important;
     padding-bottom: 2rem !important;
     max-width: 100% !important;
 }}
 [data-testid="stHeader"] {{
-    background: {BG} !important;
-    border-bottom: 1px solid {BORDER};
+    display: none !important;
 }}
 [data-testid="stToolbar"] {{
     right: 1rem !important;
+    top: 0.5rem !important;
 }}
 
 /* ── Sidebar ── */
