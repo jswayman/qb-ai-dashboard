@@ -104,12 +104,16 @@ html, body, [class*="css"], * {{
     padding-bottom: 2rem !important;
     max-width: 100% !important;
 }}
+/* Keep header rendered so sidebar toggle button stays accessible */
 [data-testid="stHeader"] {{
+    background: {BG} !important;
+    border-bottom: none !important;
+}}
+[data-testid="stDecoration"] {{
     display: none !important;
 }}
 [data-testid="stToolbar"] {{
     right: 1rem !important;
-    top: 0.5rem !important;
 }}
 
 /* ── Sidebar ── */
