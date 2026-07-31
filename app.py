@@ -91,8 +91,13 @@ st.markdown(f"""
 <style>
 /* ── Fonts ── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html, body, [class*="css"], * {{
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+html, body, [class*="css"] {{
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}}
+/* Exclude icon elements from the font override */
+.material-icons, [data-testid="stSidebarNavCollapseButton"] *, button[kind="header"] * {{
+    font-family: 'Material Icons' !important;
 }}
 
 /* ── App shell ── */
