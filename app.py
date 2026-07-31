@@ -373,7 +373,7 @@ button[data-testid="stTab"][aria-selected="true"] {{
 ::-webkit-scrollbar-thumb:hover {{ background: {TEXT_3}; }}
 
 /* ── KPI detail buttons — subtle card-footer override ── */
-[data-testid="stMain"] button[kind="secondary"],
+[data-testid="stAppViewBlockContainer"] button[data-testid="baseButton-secondary"],
 [data-testid="stMain"] button[data-testid="baseButton-secondary"] {{
     background: rgba(79,142,247,.06) !important;
     color: {TEXT_2} !important;
@@ -389,7 +389,7 @@ button[data-testid="stTab"][aria-selected="true"] {{
     transition: background .15s, color .15s, border-color .15s !important;
     width: 100% !important;
 }}
-[data-testid="stMain"] button[kind="secondary"]:hover,
+[data-testid="stAppViewBlockContainer"] button[data-testid="baseButton-secondary"]:hover,
 [data-testid="stMain"] button[data-testid="baseButton-secondary"]:hover {{
     background: rgba(79,142,247,.14) !important;
     color: {ACCENT} !important;
