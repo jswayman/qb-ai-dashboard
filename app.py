@@ -226,7 +226,7 @@ button[data-testid="stTab"][aria-selected="true"] {{
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    margin-top: 6px;
+    margin-top: 7px;
     font-size: 0.7rem;
     font-weight: 500;
     padding: 2px 7px;
@@ -494,22 +494,16 @@ def _theme_fig(fig: go.Figure, height: int = 300) -> go.Figure:
 
 
 def _kpi_card(label: str, value: str, delta: str = "", delta_cls: str = "mute") -> str:
-    accent_map = {
-        "pos": "accent-green",
-        "neg": "accent-red",
-        "warn": "accent-amber",
-        "mute": "accent-blue",
-    }
-    top_cls = accent_map.get(delta_cls, "accent-blue")
-    delta_html = (
-        f'<div class="kpi-delta {delta_cls}">{delta}</div>' if delta else ""
-    )
-    return f"""
-    <div class="kpi-card {top_cls}">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-value">{value}</div>
-        {delta_html}
-    </div>"""
+    """Return a compact single-line HTML string for one KPI card.
+    Must be single-line so st.markdown(unsafe_allow_html=True) renders it without
+    the markdown parser breaking on mid-string newlines."""
+    accent = {"pos": "accent-green", "neg": "accent-red",
+              "warn": "accent-amber", "mute": "accent-blue"}.get(delta_cls, "accent-blue")
+    d = f'<span class="kpi-delta {delta_cls}">{delta}</span>' if delta else ""
+    return (f'<div class="kpi-card {accent}">'
+            f'<div class="kpi-label">{label}</div>'
+            f'<div class="kpi-value">{value}</div>'
+            f'{d}</div>')
 
 
 def _render_chart(result: dict, key: str = "") -> None:
@@ -567,24 +561,24 @@ if kpis:
     net        = kpis["net_income"]
     overdue    = kpis["overdue_bills"]
 
-    cards = "".join([
-        _kpi_card("Total Revenue",   _fmt_currency(kpis["total_revenue"]),
-                  delta_cls="pos"),
-        _kpi_card("Total Expenses",  _fmt_currency(kpis["total_expenses"]),
-                  delta_cls="neg"),
-        _kpi_card("Net Income",      _fmt_currency(net),
-                  delta="Profit" if net >= 0 else "Loss",
-                  delta_cls="pos" if net >= 0 else "neg"),
-        _kpi_card("Cash & Bank",     _fmt_currency(total_cash),
-                  delta_cls="pos" if total_cash >= 0 else "neg"),
-        _kpi_card("Open Invoices",   str(kpis["open_invoices"]),
-                  delta=f"{kpis['open_invoices']} pending",
-                  delta_cls="warn" if kpis["open_invoices"] > 0 else "mute"),
-        _kpi_card("Overdue Bills",   str(overdue),
-                  delta=f"{overdue} overdue" if overdue > 0 else "All clear",
-                  delta_cls="neg" if overdue > 0 else "pos"),
-    ])
-    st.markdown(f'<div class="kpi-grid">{cards}</div>', unsafe_allow_html=True)
+    card_specs = [
+        ("Total Revenue",  _fmt_currency(kpis["total_revenue"]), "",              "pos"),
+        ("Total Expenses", _fmt_currency(kpis["total_expenses"]), "",             "neg"),
+        ("Net Income",     _fmt_currency(net),
+            "Profit" if net >= 0 else "Loss",     "pos" if net >= 0 else "neg"),
+        ("Cash & Bank",    _fmt_currency(total_cash), "",
+            "pos" if total_cash >= 0 else "neg"),
+        ("Open Invoices",  str(kpis["open_invoices"]),
+            f"{kpis['open_invoices']} pending" if kpis["open_invoices"] else "None",
+            "warn" if kpis["open_invoices"] > 0 else "mute"),
+        ("Overdue Bills",  str(overdue),
+            f"{overdue} overdue" if overdue > 0 else "All clear",
+            "neg" if overdue > 0 else "pos"),
+    ]
+
+    k_cols = st.columns(6)
+    for col, (label, value, delta, cls) in zip(k_cols, card_specs):
+        col.markdown(_kpi_card(label, value, delta, cls), unsafe_allow_html=True)
 
 st.divider()
 
