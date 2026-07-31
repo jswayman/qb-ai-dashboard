@@ -30,7 +30,10 @@ from backend.queries import (
     _tool_get_bills_trend,
     _tool_get_cash_balance,
     _tool_get_expense_breakdown,
+    _tool_get_expenses_for_period,
+    _tool_get_invoice_aging,
     _tool_get_invoice_status_breakdown,
+    _tool_get_invoices_for_period,
     _tool_get_kpi_summary,
     _tool_get_kpi_summary_ranged,
     _tool_get_monthly_cashflow,
@@ -38,6 +41,7 @@ from backend.queries import (
     _tool_get_recent_open_invoices,
     _tool_get_revenue_trend,
     _tool_get_top_customers_by_revenue,
+    _tool_get_top_customers_for_period,
     _tool_get_top_vendors,
 )
 
@@ -210,6 +214,9 @@ button[data-testid="stTab"][aria-selected="true"] {{
     padding: 14px 16px 12px;
     position: relative;
     transition: border-color .2s ease;
+    min-height: 112px;
+    display: flex;
+    flex-direction: column;
 }}
 .kpi-card:hover {{ border-color: {BORDER_2}; }}
 .kpi-card.accent-green {{ border-top: 2px solid {GREEN}; }}
@@ -257,6 +264,7 @@ button[data-testid="stTab"][aria-selected="true"] {{
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 7px;
+    min-height: 22px;
 }}
 .kpi-delta {{
     display: inline-flex;
@@ -360,6 +368,111 @@ button[data-testid="stTab"][aria-selected="true"] {{
 ::-webkit-scrollbar-track {{ background: {BG}; }}
 ::-webkit-scrollbar-thumb {{ background: {BORDER_2}; border-radius: 3px; }}
 ::-webkit-scrollbar-thumb:hover {{ background: {TEXT_3}; }}
+
+/* ── KPI detail buttons — subtle card-footer override ── */
+[data-testid="stMain"] button[data-testid="baseButton-primary"] {{
+    background: rgba(79,142,247,.07) !important;
+    color: {TEXT_3} !important;
+    border: 1px solid {BORDER} !important;
+    border-top: none !important;
+    border-radius: 0 0 9px 9px !important;
+    font-size: 0.6rem !important;
+    font-weight: 600 !important;
+    padding: 4px 0 !important;
+    margin-top: -2px !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    transition: background .15s, color .15s, border-color .15s !important;
+    width: 100% !important;
+}}
+[data-testid="stMain"] button[data-testid="baseButton-primary"]:hover {{
+    background: rgba(79,142,247,.14) !important;
+    color: {ACCENT} !important;
+    border-color: {BORDER_2} !important;
+}}
+
+/* ── Dialog / modal ── */
+[data-testid="stModal"] > div > div {{
+    background: {SURFACE} !important;
+    border: 1px solid {BORDER_2} !important;
+    border-radius: 12px !important;
+}}
+/* Title — catch every heading variant Streamlit might use */
+[data-testid="stModal"] h1,
+[data-testid="stModal"] h2,
+[data-testid="stModal"] h3 {{
+    color: {TEXT_1} !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+}}
+/* Section headers (.chart-title) inside the modal */
+[data-testid="stModal"] .chart-title {{
+    color: {TEXT_2} !important;
+}}
+/* General body text inside modal */
+[data-testid="stModal"] p,
+[data-testid="stModal"] label,
+[data-testid="stModal"] .stMarkdown p {{
+    color: {TEXT_2} !important;
+}}
+/* Close button — target by aria-label and by Streamlit's kind attr */
+[data-testid="stModal"] button[aria-label="Close"],
+[data-testid="stModal"] button[kind="header"],
+[data-testid="stModal"] button[data-testid$="headerNoPadding"] {{
+    color: {TEXT_2} !important;
+    background: rgba(74,86,128,.12) !important;
+    border-radius: 6px !important;
+    opacity: 1 !important;
+}}
+[data-testid="stModal"] button[aria-label="Close"]:hover,
+[data-testid="stModal"] button[kind="header"]:hover,
+[data-testid="stModal"] button[data-testid$="headerNoPadding"]:hover {{
+    color: {TEXT_1} !important;
+    background: rgba(79,142,247,.15) !important;
+}}
+
+/* ── Dialog KPI strip ── */
+.dlg-kpi-strip {{
+    display: flex;
+    gap: 10px;
+    margin-bottom: 1rem;
+}}
+.dlg-kpi {{
+    flex: 1;
+    background: {SURFACE_2};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 10px 14px;
+}}
+.dlg-kpi-label {{
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: {TEXT_2};
+    margin-bottom: 4px;
+}}
+.dlg-kpi-value {{
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: {TEXT_1};
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+}}
+.dlg-kpi-value.green {{ color: {GREEN}; }}
+.dlg-kpi-value.red   {{ color: {RED};   }}
+.dlg-kpi-value.amber {{ color: {AMBER}; }}
+.dlg-period-badge {{
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: {TEXT_1};
+    background: rgba(79,142,247,.12);
+    border: 1px solid rgba(79,142,247,.2);
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -597,6 +710,345 @@ def _section(title: str) -> None:
     st.markdown(f'<p class="chart-title">{title}</p>', unsafe_allow_html=True)
 
 
+# ─── KPI Detail Dialogs ────────────────────────────────────────────────────────
+
+@st.experimental_dialog("Revenue Detail", width="large")
+def _dlg_revenue(start: str, end: str, label: str) -> None:
+    st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
+                unsafe_allow_html=True)
+    inv_data  = _safe(_tool_get_invoices_for_period,  start_date=start, end_date=end, limit=100)
+    cust_data = _safe(_tool_get_top_customers_for_period, start_date=start, end_date=end, limit=10)
+    trend     = _safe(_tool_get_revenue_trend, year=int(start[:4]))
+
+    # KPI strip
+    total_rev = 0.0
+    inv_count = 0
+    avg_inv   = 0.0
+    if inv_data and inv_data.get("data"):
+        df_inv = pd.DataFrame(inv_data["data"])
+        total_rev = float(df_inv["total_amt"].sum())
+        inv_count = len(df_inv)
+        avg_inv   = total_rev / inv_count if inv_count else 0.0
+    st.markdown(
+        f'<div class="dlg-kpi-strip">'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Total Revenue</div>'
+        f'<div class="dlg-kpi-value green">{_fmt_currency(total_rev)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Invoices</div>'
+        f'<div class="dlg-kpi-value">{inv_count:,}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Avg Invoice</div>'
+        f'<div class="dlg-kpi-value">{_fmt_currency(avg_inv)}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Charts
+    c1, c2 = st.columns(2)
+    with c1:
+        _section(f"Revenue by Month — {start[:4]}")
+        if trend and trend.get("data"):
+            df_t = pd.DataFrame(trend["data"])
+            fig = px.area(df_t, x="month", y="revenue", color_discrete_sequence=[GREEN])
+            fig.update_traces(fill="tozeroy", fillcolor="rgba(52,211,153,0.10)", line_width=2)
+            st.plotly_chart(_theme_fig(fig, height=240), use_container_width=True, key="dlg_rev_trend")
+        else:
+            _no_data()
+    with c2:
+        _section("Top Customers")
+        if cust_data and cust_data.get("data"):
+            df_c = pd.DataFrame(cust_data["data"])
+            fig = px.bar(df_c, x="total_invoiced", y="customer", orientation="h",
+                         color_discrete_sequence=[ACCENT])
+            fig.update_yaxes(categoryorder="total ascending")
+            st.plotly_chart(_theme_fig(fig, height=240), use_container_width=True, key="dlg_rev_cust")
+        else:
+            _no_data()
+
+    # Detail table
+    st.divider()
+    _section("Invoice List")
+    if inv_data and inv_data.get("data"):
+        df_show = pd.DataFrame(inv_data["data"]).copy()
+        df_show["total_amt"] = df_show["total_amt"].apply(lambda x: f"${x:,.2f}")
+        df_show["balance"]   = df_show["balance"].apply(lambda x: f"${x:,.2f}")
+        df_show.columns = [c.replace("_", " ").title() for c in df_show.columns]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+    else:
+        _no_data("No invoices for this period.")
+
+
+@st.experimental_dialog("Expenses Detail", width="large")
+def _dlg_expenses(start: str, end: str, label: str) -> None:
+    st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
+                unsafe_allow_html=True)
+    exp_data    = _safe(_tool_get_expenses_for_period, start_date=start, end_date=end, limit=100)
+    by_acct     = _safe(_tool_get_expense_breakdown, group_by="account", limit=10)
+    top_vendors = _safe(_tool_get_top_vendors, limit=10)
+
+    # KPI strip
+    total_exp = 0.0
+    exp_count = 0
+    largest   = 0.0
+    if exp_data and exp_data.get("data"):
+        df_exp  = pd.DataFrame(exp_data["data"])
+        total_exp = float(df_exp["total_amt"].sum())
+        exp_count = len(df_exp)
+        largest   = float(df_exp["total_amt"].max()) if not df_exp.empty else 0.0
+    st.markdown(
+        f'<div class="dlg-kpi-strip">'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Total Expenses</div>'
+        f'<div class="dlg-kpi-value red">{_fmt_currency(total_exp)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Transactions</div>'
+        f'<div class="dlg-kpi-value">{exp_count:,}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Largest Single</div>'
+        f'<div class="dlg-kpi-value">{_fmt_currency(largest)}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Charts
+    c1, c2 = st.columns(2)
+    with c1:
+        _section("By Account")
+        if by_acct and by_acct.get("data"):
+            df_a = pd.DataFrame(by_acct["data"])
+            fig = px.pie(df_a, names="label", values="total",
+                         color_discrete_sequence=CHART_COLORS, hole=0.4)
+            fig.update_traces(textfont_color=TEXT_1, textfont_size=11)
+            st.plotly_chart(_theme_fig(fig, height=240), use_container_width=True, key="dlg_exp_acct")
+        else:
+            _no_data()
+    with c2:
+        _section("Top Vendors")
+        if top_vendors and top_vendors.get("data"):
+            df_v = pd.DataFrame(top_vendors["data"])
+            fig = px.bar(df_v, x="total_spend", y="vendor", orientation="h",
+                         color_discrete_sequence=[RED])
+            fig.update_yaxes(categoryorder="total ascending")
+            st.plotly_chart(_theme_fig(fig, height=240), use_container_width=True, key="dlg_exp_vendors")
+        else:
+            _no_data()
+
+    # Detail table
+    st.divider()
+    _section("Expense List")
+    if exp_data and exp_data.get("data"):
+        df_show = pd.DataFrame(exp_data["data"]).copy()
+        df_show["total_amt"] = df_show["total_amt"].apply(lambda x: f"${x:,.2f}")
+        df_show.columns = [c.replace("_", " ").title() for c in df_show.columns]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+    else:
+        _no_data("No expenses for this period.")
+
+
+@st.experimental_dialog("Net Income Detail", width="large")
+def _dlg_net_income(start: str, end: str, label: str,
+                    revenue: float, expenses: float) -> None:
+    st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
+                unsafe_allow_html=True)
+    net = revenue - expenses
+    net_cls = "green" if net >= 0 else "red"
+    margin  = (net / revenue * 100) if revenue else 0.0
+    st.markdown(
+        f'<div class="dlg-kpi-strip">'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Revenue</div>'
+        f'<div class="dlg-kpi-value green">{_fmt_currency(revenue)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Expenses</div>'
+        f'<div class="dlg-kpi-value red">{_fmt_currency(expenses)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Net Income</div>'
+        f'<div class="dlg-kpi-value {net_cls}">{_fmt_currency(net)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Margin</div>'
+        f'<div class="dlg-kpi-value {net_cls}">{margin:.1f}%</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    yr = int(start[:4])
+    cashflow = _safe(_tool_get_monthly_cashflow, year=yr)
+    _section(f"Revenue vs Expenses — {yr}")
+    if cashflow and cashflow.get("data"):
+        df_cf = pd.DataFrame(cashflow["data"])
+        fig = go.Figure()
+        if "revenue" in df_cf.columns:
+            fig.add_trace(go.Bar(name="Revenue",  x=df_cf["month"], y=df_cf["revenue"],
+                                 marker_color=GREEN))
+        if "expenses" in df_cf.columns:
+            fig.add_trace(go.Bar(name="Expenses", x=df_cf["month"], y=df_cf["expenses"],
+                                 marker_color=RED))
+        _theme_fig(fig, height=260)
+        fig.update_layout(
+            barmode="group",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, use_container_width=True, key="dlg_ni_cashflow")
+    else:
+        _no_data()
+
+    # Month-by-month P&L table
+    st.divider()
+    _section("Monthly P&L")
+    if cashflow and cashflow.get("data"):
+        df_pl = pd.DataFrame(cashflow["data"]).copy()
+        if "revenue" in df_pl.columns and "expenses" in df_pl.columns:
+            df_pl["net_income"] = df_pl["revenue"] - df_pl["expenses"]
+            df_pl["margin_%"]   = df_pl.apply(
+                lambda r: f"{r['net_income']/r['revenue']*100:.1f}%" if r["revenue"] else "—",
+                axis=1,
+            )
+            df_pl["revenue"]    = df_pl["revenue"].apply(lambda x: f"${x:,.0f}")
+            df_pl["expenses"]   = df_pl["expenses"].apply(lambda x: f"${x:,.0f}")
+            df_pl["net_income"] = df_pl["net_income"].apply(lambda x: f"${x:,.0f}")
+            df_pl.columns = [c.replace("_", " ").title() for c in df_pl.columns]
+            st.dataframe(df_pl, use_container_width=True, hide_index=True)
+    else:
+        _no_data()
+
+
+@st.experimental_dialog("Cash & Bank Detail", width="large")
+def _dlg_cash(start: str, end: str, label: str) -> None:
+    st.markdown(f'<span class="dlg-period-badge">As of today</span>', unsafe_allow_html=True)
+    cash = _safe(_tool_get_cash_balance)
+
+    total_cash = cash.get("total_cash", 0.0) if cash else 0.0
+    acct_count = len(cash.get("data", [])) if cash else 0
+    st.markdown(
+        f'<div class="dlg-kpi-strip">'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Total Cash & Bank</div>'
+        f'<div class="dlg-kpi-value {"green" if total_cash >= 0 else "red"}">'
+        f'{_fmt_currency(total_cash)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Accounts</div>'
+        f'<div class="dlg-kpi-value">{acct_count}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    _section("Account Balances")
+    if cash and cash.get("data"):
+        df_cash = pd.DataFrame(cash["data"])
+        fig = px.bar(df_cash, x="account", y="balance",
+                     color_discrete_sequence=[ACCENT])
+        fig.update_layout(xaxis_tickangle=-30)
+        st.plotly_chart(_theme_fig(fig, height=260), use_container_width=True, key="dlg_cash_bar")
+
+        st.divider()
+        _section("Account Breakdown")
+        df_show = df_cash.copy()
+        df_show["balance"] = df_show["balance"].apply(lambda x: f"${x:,.2f}")
+        df_show.columns = [c.replace("_", " ").title() for c in df_show.columns]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+    else:
+        _no_data("No bank/asset account data found. Ensure accounts are synced.")
+
+
+@st.experimental_dialog("Open Invoices Detail", width="large")
+def _dlg_invoices(start: str, end: str, label: str) -> None:
+    st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
+                unsafe_allow_html=True)
+    open_inv = _safe(_tool_get_recent_open_invoices, limit=100)
+    aging    = _safe(_tool_get_invoice_aging)
+
+    # KPI strip
+    total_bal  = 0.0
+    inv_count  = 0
+    if open_inv and open_inv.get("data"):
+        df_oi    = pd.DataFrame(open_inv["data"])
+        inv_count  = len(df_oi)
+        total_bal  = float(df_oi["balance"].sum())
+    st.markdown(
+        f'<div class="dlg-kpi-strip">'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Open Invoices</div>'
+        f'<div class="dlg-kpi-value amber">{inv_count:,}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Total Balance Owed</div>'
+        f'<div class="dlg-kpi-value">{_fmt_currency(total_bal)}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Aging chart
+    _section("AR Aging")
+    if aging and aging.get("data"):
+        df_age = pd.DataFrame(aging["data"])
+        order  = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+        df_age["bucket"] = pd.Categorical(df_age["bucket"], categories=order, ordered=True)
+        df_age = df_age.sort_values("bucket")
+        bucket_colors = [GREEN, AMBER, "#FB923C", RED, "#C53030"]
+        fig = px.bar(df_age, x="bucket", y="total_balance",
+                     color="bucket",
+                     color_discrete_sequence=bucket_colors)
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(_theme_fig(fig, height=220), use_container_width=True, key="dlg_inv_aging")
+
+        df_age_show = df_age.copy()
+        df_age_show["total_balance"] = df_age_show["total_balance"].apply(lambda x: f"${x:,.2f}")
+        df_age_show.columns = [c.replace("_", " ").title() for c in df_age_show.columns]
+        st.dataframe(df_age_show, use_container_width=True, hide_index=True)
+    else:
+        _no_data()
+
+    st.divider()
+    _section("All Open Invoices")
+    if open_inv and open_inv.get("data"):
+        df_show = pd.DataFrame(open_inv["data"]).copy()
+        df_show["total_amt"] = df_show["total_amt"].apply(lambda x: f"${x:,.2f}")
+        df_show["balance"]   = df_show["balance"].apply(lambda x: f"${x:,.2f}")
+        df_show.columns = [c.replace("_", " ").title() for c in df_show.columns]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+    else:
+        _no_data("No open invoices.")
+
+
+@st.experimental_dialog("Overdue Bills Detail", width="large")
+def _dlg_bills(start: str, end: str, label: str) -> None:
+    st.markdown(f'<span class="dlg-period-badge">As of today</span>', unsafe_allow_html=True)
+    overdue = _safe(_tool_get_overdue_bills_detail, limit=100)
+
+    total_overdue = 0.0
+    bill_count    = 0
+    worst_days    = 0
+    if overdue and overdue.get("data"):
+        df_ob      = pd.DataFrame(overdue["data"])
+        bill_count    = len(df_ob)
+        total_overdue = float(df_ob["balance"].sum())
+        worst_days    = int(df_ob["days_overdue"].max()) if "days_overdue" in df_ob.columns else 0
+    st.markdown(
+        f'<div class="dlg-kpi-strip">'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Overdue Bills</div>'
+        f'<div class="dlg-kpi-value red">{bill_count:,}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Total Amount Overdue</div>'
+        f'<div class="dlg-kpi-value red">{_fmt_currency(total_overdue)}</div></div>'
+        f'<div class="dlg-kpi"><div class="dlg-kpi-label">Most Days Overdue</div>'
+        f'<div class="dlg-kpi-value amber">{worst_days:,}d</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Vendor breakdown
+    if overdue and overdue.get("data"):
+        df_ob = pd.DataFrame(overdue["data"])
+        if "vendor_name" in df_ob.columns and not df_ob.empty:
+            _section("Overdue by Vendor")
+            df_vend = (
+                df_ob.groupby("vendor_name", as_index=False)["balance"]
+                .sum()
+                .sort_values("balance", ascending=True)
+            )
+            fig = px.bar(df_vend, x="balance", y="vendor_name", orientation="h",
+                         color_discrete_sequence=[RED])
+            st.plotly_chart(_theme_fig(fig, height=220), use_container_width=True, key="dlg_bill_vend")
+
+    st.divider()
+    _section("All Overdue Bills")
+    if overdue and overdue.get("data"):
+        df_show = pd.DataFrame(overdue["data"]).copy()
+        df_show["total_amt"] = df_show["total_amt"].apply(lambda x: f"${x:,.2f}")
+        df_show["balance"]   = df_show["balance"].apply(lambda x: f"${x:,.2f}")
+        df_show.columns = [c.replace("_", " ").title() for c in df_show.columns]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+    else:
+        _no_data("No overdue bills — great news!")
+
+
+
+
 def _no_data(msg: str = "No data yet — sync QuickBooks to populate.") -> None:
     st.markdown(f'<div class="empty-state">{msg}</div>', unsafe_allow_html=True)
 
@@ -649,7 +1101,7 @@ def _kpi_card(label: str, value: str, period_label: str = "",
         deltas += f'<span class="kpi-delta {pop_cls}">{pop_delta} {pop_tag}</span>'
     if yoy_delta:
         deltas += f'<span class="kpi-delta {yoy_cls}">{yoy_delta} YoY</span>'
-    delta_row = f'<div class="kpi-deltas">{deltas}</div>' if deltas else ""
+    delta_row = f'<div class="kpi-deltas">{deltas}</div>'
     return (f'<div class="kpi-card {accent_cls}">'
             f'<div class="kpi-header"><span class="kpi-label">{label}</span>{period_html}</div>'
             f'<div class="kpi-value">{value}</div>'
@@ -761,13 +1213,33 @@ if kpis_cur:
          "accent-red" if overdue > 0 else "accent-green"),
     ]
 
+    dialog_configs = [
+        ("revenue",  _dlg_revenue,
+         (cur_start, cur_end, period_label)),
+        ("expenses", _dlg_expenses,
+         (cur_start, cur_end, period_label)),
+        ("net",      _dlg_net_income,
+         (cur_start, cur_end, period_label,
+          kpis_cur["total_revenue"], kpis_cur["total_expenses"])),
+        ("cash",     _dlg_cash,
+         (cur_start, cur_end, period_label)),
+        ("invoices", _dlg_invoices,
+         (cur_start, cur_end, period_label)),
+        ("bills",    _dlg_bills,
+         (cur_start, cur_end, period_label)),
+    ]
+
     k_cols = st.columns(6)
-    for col, spec in zip(k_cols, card_specs):
+    for col, spec, (key, dlg_fn, args) in zip(k_cols, card_specs, dialog_configs):
         (lbl, val, plabel, pdelta, pcls, ptag, ydelta, ycls, acls) = spec
-        col.markdown(
-            _kpi_card(lbl, val, plabel, pdelta, pcls, ptag, ydelta, ycls, acls),
-            unsafe_allow_html=True,
-        )
+        with col:
+            st.markdown(
+                _kpi_card(lbl, val, plabel, pdelta, pcls, ptag, ydelta, ycls, acls),
+                unsafe_allow_html=True,
+            )
+            if st.button("Details →", key=f"kpi_det_{key}",
+                         use_container_width=True, type="primary"):
+                dlg_fn(*args)
 
 st.divider()
 

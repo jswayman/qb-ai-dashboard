@@ -270,6 +270,78 @@ def _tool_get_accounts_receivable_balance(**kwargs) -> dict:
         return {"error": str(e)}
 
 
+def _tool_get_invoices_for_period(start_date: str, end_date: str, limit: int = 100) -> dict:
+    """Return invoices for a specific date range, newest first."""
+    try:
+        df = db.run_sql(f"""
+            SELECT doc_number, txn_date, due_date, customer_name, total_amt, balance, status
+            FROM invoices
+            WHERE txn_date BETWEEN '{start_date}' AND '{end_date}'
+            ORDER BY txn_date DESC
+            LIMIT {limit}
+        """)
+        return {"data": df.to_dict(orient="records")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_expenses_for_period(start_date: str, end_date: str, limit: int = 100) -> dict:
+    """Return expenses for a specific date range, newest first."""
+    try:
+        df = db.run_sql(f"""
+            SELECT txn_date, vendor_name, account_name, total_amt
+            FROM expenses
+            WHERE txn_date BETWEEN '{start_date}' AND '{end_date}'
+            ORDER BY txn_date DESC
+            LIMIT {limit}
+        """)
+        return {"data": df.to_dict(orient="records")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_invoice_aging() -> dict:
+    """Return AR aging buckets for open invoices."""
+    try:
+        df = db.run_sql("""
+            SELECT
+                CASE
+                    WHEN julianday(due_date) >= julianday('now') THEN 'Current'
+                    WHEN julianday('now') - julianday(due_date) <= 30 THEN '1-30 Days'
+                    WHEN julianday('now') - julianday(due_date) <= 60 THEN '31-60 Days'
+                    WHEN julianday('now') - julianday(due_date) <= 90 THEN '61-90 Days'
+                    ELSE '90+ Days'
+                END as bucket,
+                COUNT(*) as count,
+                COALESCE(SUM(balance), 0) as total_balance
+            FROM invoices
+            WHERE status = 'open'
+            GROUP BY bucket
+        """)
+        return {"data": df.to_dict(orient="records")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _tool_get_top_customers_for_period(start_date: str, end_date: str, limit: int = 10) -> dict:
+    """Return top customers by revenue for a specific date range."""
+    try:
+        df = db.run_sql(f"""
+            SELECT customer_name as customer,
+                   COUNT(*) as invoice_count,
+                   SUM(total_amt) as total_invoiced
+            FROM invoices
+            WHERE txn_date BETWEEN '{start_date}' AND '{end_date}'
+              AND customer_name IS NOT NULL
+            GROUP BY customer_name
+            ORDER BY total_invoiced DESC
+            LIMIT {limit}
+        """)
+        return {"data": df.to_dict(orient="records")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _tool_get_kpi_summary_ranged(start_date: str, end_date: str) -> dict:
     """Get KPI metrics filtered to a specific date range (YYYY-MM-DD strings)."""
     try:
