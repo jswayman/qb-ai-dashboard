@@ -123,15 +123,19 @@ html, body, [class*="css"] {{
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {{
-    background: {SURFACE} !important;
+    background: #1A1F2E !important;
     border-right: 1px solid {BORDER} !important;
 }}
 [data-testid="stSidebar"] * {{
-    color: {TEXT_2} !important;
+    color: #C8D0E8 !important;
 }}
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 {{
-    color: {TEXT_1} !important;
+    color: #E8ECF8 !important;
+}}
+[data-testid="stSidebar"] label, [data-testid="stSidebar"] p,
+[data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {{
+    color: #A0AABB !important;
 }}
 [data-testid="stSidebar"] .stButton > button {{
     background: {ACCENT} !important;
