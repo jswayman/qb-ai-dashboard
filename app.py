@@ -569,6 +569,17 @@ def _pct_delta(current: float, prior: float):
     return f"{sign}{pct:.1f}%", ("pos" if pct >= 0 else "neg")
 
 
+def _abs_delta(current: float, prior: float):
+    """Return (formatted_string, css_class) for an absolute-dollar change.
+    Used where % is misleading (e.g. net income swinging through zero)."""
+    diff = current - prior
+    if diff == 0:
+        return None, "mute"
+    sign = "+" if diff >= 0 else ""
+    cls  = "pos" if diff >= 0 else "neg"
+    return f"{sign}{_fmt_currency(diff)}", cls
+
+
 def _section(title: str) -> None:
     st.markdown(f'<p class="chart-title">{title}</p>', unsafe_allow_html=True)
 
@@ -725,7 +736,9 @@ if kpis_cur:
          net_pd,  net_pc,  pop_tag, net_yd,  net_yc,
          "accent-green" if net >= 0 else "accent-red"),
         ("Cash & Bank",    _fmt_currency(total_cash), "Current",
-         "", "mute", "", "", "mute",
+         *(_abs_delta(kpis_cur["net_income"], kpis_pp["net_income"])  if kpis_pp  else ("", "mute")),
+         pop_tag,
+         *(_abs_delta(kpis_cur["net_income"], kpis_yoy["net_income"]) if kpis_yoy else ("", "mute")),
          "accent-green" if total_cash >= 0 else "accent-red"),
         ("Open Invoices",  str(kpis_cur["open_invoices"]), period_label,
          inv_pd,  inv_pc,  pop_tag, inv_yd,  inv_yc,
