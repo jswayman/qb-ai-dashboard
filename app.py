@@ -71,6 +71,9 @@ except Exception:
 
 db.init_schema()
 
+# st.dialog is stable in Streamlit ≥1.37; experimental_dialog in ≥1.36
+_st_dialog = getattr(st, "dialog", None) or st.experimental_dialog
+
 
 # ─── Design tokens ────────────────────────────────────────────────────────────
 BG          = "#070C18"
@@ -712,7 +715,7 @@ def _section(title: str) -> None:
 
 # ─── KPI Detail Dialogs ────────────────────────────────────────────────────────
 
-@st.experimental_dialog("Revenue Detail", width="large")
+@_st_dialog("Revenue Detail", width="large")
 def _dlg_revenue(start: str, end: str, label: str) -> None:
     st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
                 unsafe_allow_html=True)
@@ -776,7 +779,7 @@ def _dlg_revenue(start: str, end: str, label: str) -> None:
         _no_data("No invoices for this period.")
 
 
-@st.experimental_dialog("Expenses Detail", width="large")
+@_st_dialog("Expenses Detail", width="large")
 def _dlg_expenses(start: str, end: str, label: str) -> None:
     st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
                 unsafe_allow_html=True)
@@ -840,7 +843,7 @@ def _dlg_expenses(start: str, end: str, label: str) -> None:
         _no_data("No expenses for this period.")
 
 
-@st.experimental_dialog("Net Income Detail", width="large")
+@_st_dialog("Net Income Detail", width="large")
 def _dlg_net_income(start: str, end: str, label: str,
                     revenue: float, expenses: float) -> None:
     st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
@@ -903,7 +906,7 @@ def _dlg_net_income(start: str, end: str, label: str,
         _no_data()
 
 
-@st.experimental_dialog("Cash & Bank Detail", width="large")
+@_st_dialog("Cash & Bank Detail", width="large")
 def _dlg_cash(start: str, end: str, label: str) -> None:
     st.markdown(f'<span class="dlg-period-badge">As of today</span>', unsafe_allow_html=True)
     cash = _safe(_tool_get_cash_balance)
@@ -939,7 +942,7 @@ def _dlg_cash(start: str, end: str, label: str) -> None:
         _no_data("No bank/asset account data found. Ensure accounts are synced.")
 
 
-@st.experimental_dialog("Open Invoices Detail", width="large")
+@_st_dialog("Open Invoices Detail", width="large")
 def _dlg_invoices(start: str, end: str, label: str) -> None:
     st.markdown(f'<span class="dlg-period-badge">{label} &nbsp;·&nbsp; {start} → {end}</span>',
                 unsafe_allow_html=True)
@@ -996,7 +999,7 @@ def _dlg_invoices(start: str, end: str, label: str) -> None:
         _no_data("No open invoices.")
 
 
-@st.experimental_dialog("Overdue Bills Detail", width="large")
+@_st_dialog("Overdue Bills Detail", width="large")
 def _dlg_bills(start: str, end: str, label: str) -> None:
     st.markdown(f'<span class="dlg-period-badge">As of today</span>', unsafe_allow_html=True)
     overdue = _safe(_tool_get_overdue_bills_detail, limit=100)
