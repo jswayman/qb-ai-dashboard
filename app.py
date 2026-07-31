@@ -32,6 +32,7 @@ from backend.queries import (
     _tool_get_expense_breakdown,
     _tool_get_invoice_status_breakdown,
     _tool_get_kpi_summary,
+    _tool_get_kpi_summary_ranged,
     _tool_get_monthly_cashflow,
     _tool_get_overdue_bills_detail,
     _tool_get_recent_open_invoices,
@@ -203,16 +204,32 @@ button[data-testid="stTab"][aria-selected="true"] {{
 .kpi-card.accent-blue  {{ border-top: 2px solid {ACCENT}; }}
 .kpi-card.accent-amber {{ border-top: 2px solid {AMBER};  }}
 
+.kpi-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 7px;
+}}
 .kpi-label {{
     font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.07em;
     text-transform: uppercase;
     color: {TEXT_3};
-    margin-bottom: 7px;
+}}
+.kpi-period {{
+    font-size: 0.6rem;
+    font-weight: 500;
+    color: {TEXT_3};
+    background: rgba(74,86,128,.18);
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    margin-left: 4px;
+    flex-shrink: 0;
 }}
 .kpi-value {{
-    font-size: 1.55rem;
+    font-size: 1.45rem;
     font-weight: 600;
     color: {TEXT_1};
     letter-spacing: -0.03em;
@@ -222,14 +239,19 @@ button[data-testid="stTab"][aria-selected="true"] {{
     overflow: hidden;
     text-overflow: ellipsis;
 }}
+.kpi-deltas {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 7px;
+}}
 .kpi-delta {{
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    margin-top: 7px;
-    font-size: 0.7rem;
+    font-size: 0.63rem;
     font-weight: 500;
-    padding: 2px 7px;
+    padding: 2px 6px;
     border-radius: 4px;
     font-variant-numeric: tabular-nums;
 }}
@@ -336,6 +358,12 @@ if "sync_done" not in st.session_state:
     st.session_state.sync_done = False
 if "dashboard_year" not in st.session_state:
     st.session_state.dashboard_year = datetime.date.today().year
+if "period_type" not in st.session_state:
+    st.session_state.period_type = "YTD"
+if "dashboard_quarter" not in st.session_state:
+    st.session_state.dashboard_quarter = ((datetime.date.today().month - 1) // 3) + 1
+if "dashboard_month" not in st.session_state:
+    st.session_state.dashboard_month = datetime.date.today().month
 
 
 # ─── OAuth2 callback ──────────────────────────────────────────────────────────
@@ -419,13 +447,42 @@ with st.sidebar:
                   help="Connect QuickBooks first")
 
     st.divider()
-    st.subheader("3. Settings")
+    st.subheader("3. Filters")
     current_year = datetime.date.today().year
-    st.session_state.dashboard_year = st.selectbox(
-        "Trend year",
-        options=list(range(current_year, current_year - 6, -1)),
-        index=0,
+    today = datetime.date.today()
+
+    period_type = st.radio(
+        "Period",
+        ["YTD", "Month", "Quarter", "Year"],
+        index=["YTD", "Month", "Quarter", "Year"].index(st.session_state.period_type),
+        horizontal=True,
     )
+    st.session_state.period_type = period_type
+
+    sel_year = st.selectbox(
+        "Year",
+        options=list(range(current_year, current_year - 7, -1)),
+        index=0,
+        key="sel_year",
+    )
+    st.session_state.dashboard_year = sel_year
+
+    if period_type == "Quarter":
+        current_q = ((today.month - 1) // 3) + 1
+        q_opts = ["Q1", "Q2", "Q3", "Q4"]
+        default_q = min(current_q, 4) - 1 if sel_year == current_year else 0
+        sel_q = st.selectbox("Quarter", q_opts, index=default_q, key="sel_quarter")
+        st.session_state.dashboard_quarter = int(sel_q[1])
+
+    elif period_type == "Month":
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        default_m = (today.month - 2) % 12  # default to last completed month
+        if sel_year < current_year:
+            default_m = 11  # December
+        sel_m = st.selectbox("Month", month_names, index=default_m, key="sel_month")
+        st.session_state.dashboard_month = month_names.index(sel_m) + 1
+
     st.divider()
     st.caption("Data stored locally in SQLite.")
 
@@ -446,6 +503,70 @@ def _fmt_currency(val: float) -> str:
     if abs(val) >= 1_000:
         return f"${val/1_000:.1f}K"
     return f"${val:,.0f}"
+
+
+def _get_period_dates(period_type: str, year: int, quarter: int = 1, month: int = 1):
+    """Return (start_date, end_date, period_label) strings."""
+    import calendar
+    today = datetime.date.today()
+    if period_type == "Year":
+        return f"{year}-01-01", f"{year}-12-31", f"FY {year}"
+    elif period_type == "YTD":
+        end = today.strftime("%Y-%m-%d") if year == today.year else f"{year}-12-31"
+        return f"{year}-01-01", end, f"YTD {year}"
+    elif period_type == "Quarter":
+        q_sm = {1: 1, 2: 4, 3: 7, 4: 10}[quarter]
+        q_em = {1: 3, 2: 6, 3: 9, 4: 12}[quarter]
+        ed = calendar.monthrange(year, q_em)[1]
+        return f"{year}-{q_sm:02d}-01", f"{year}-{q_em:02d}-{ed:02d}", f"Q{quarter} {year}"
+    elif period_type == "Month":
+        ed = calendar.monthrange(year, month)[1]
+        mn = ["Jan","Feb","Mar","Apr","May","Jun",
+              "Jul","Aug","Sep","Oct","Nov","Dec"][month - 1]
+        return f"{year}-{month:02d}-01", f"{year}-{month:02d}-{ed:02d}", f"{mn} {year}"
+    return f"{year}-01-01", f"{year}-12-31", f"FY {year}"
+
+
+def _prior_period_dates(period_type: str, year: int, quarter: int = 1, month: int = 1):
+    """Return (start, end) for the immediately preceding comparable period."""
+    import calendar
+    if period_type == "Month":
+        py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+        ed = calendar.monthrange(py, pm)[1]
+        return f"{py}-{pm:02d}-01", f"{py}-{pm:02d}-{ed:02d}"
+    elif period_type == "Quarter":
+        pq, py = (4, year - 1) if quarter == 1 else (quarter - 1, year)
+        q_sm = {1: 1, 2: 4, 3: 7, 4: 10}[pq]
+        q_em = {1: 3, 2: 6, 3: 9, 4: 12}[pq]
+        ed = calendar.monthrange(py, q_em)[1]
+        return f"{py}-{q_sm:02d}-01", f"{py}-{q_em:02d}-{ed:02d}"
+    else:  # Year / YTD — prior period IS prior year
+        s, e, _ = _get_period_dates(period_type, year - 1, quarter, month)
+        return s, e
+
+
+def _prior_year_dates(start_date: str, end_date: str):
+    """Same date range shifted back 1 year."""
+    s = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+    e = datetime.datetime.strptime(end_date,   "%Y-%m-%d").date()
+    try:
+        ps = s.replace(year=s.year - 1)
+    except ValueError:
+        ps = s.replace(year=s.year - 1, day=28)
+    try:
+        pe = e.replace(year=e.year - 1)
+    except ValueError:
+        pe = e.replace(year=e.year - 1, day=28)
+    return ps.strftime("%Y-%m-%d"), pe.strftime("%Y-%m-%d")
+
+
+def _pct_delta(current: float, prior: float):
+    """Return (formatted_string, css_class) for a % change."""
+    if prior == 0:
+        return None, "mute"
+    pct = (current - prior) / abs(prior) * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.1f}%", ("pos" if pct >= 0 else "neg")
 
 
 def _section(title: str) -> None:
@@ -493,17 +614,23 @@ def _theme_fig(fig: go.Figure, height: int = 300) -> go.Figure:
     return fig
 
 
-def _kpi_card(label: str, value: str, delta: str = "", delta_cls: str = "mute") -> str:
-    """Return a compact single-line HTML string for one KPI card.
-    Must be single-line so st.markdown(unsafe_allow_html=True) renders it without
-    the markdown parser breaking on mid-string newlines."""
-    accent = {"pos": "accent-green", "neg": "accent-red",
-              "warn": "accent-amber", "mute": "accent-blue"}.get(delta_cls, "accent-blue")
-    d = f'<span class="kpi-delta {delta_cls}">{delta}</span>' if delta else ""
-    return (f'<div class="kpi-card {accent}">'
-            f'<div class="kpi-label">{label}</div>'
+def _kpi_card(label: str, value: str, period_label: str = "",
+              pop_delta: str = "", pop_cls: str = "mute", pop_tag: str = "",
+              yoy_delta: str = "", yoy_cls: str = "mute",
+              accent_cls: str = "accent-blue") -> str:
+    """Compact single-line HTML KPI card with period label + delta badges."""
+    period_html = f'<span class="kpi-period">{period_label}</span>' if period_label else ""
+    deltas = ""
+    if pop_delta and pop_tag:
+        deltas += f'<span class="kpi-delta {pop_cls}">{pop_delta} {pop_tag}</span>'
+    if yoy_delta:
+        deltas += f'<span class="kpi-delta {yoy_cls}">{yoy_delta} YoY</span>'
+    delta_row = f'<div class="kpi-deltas">{deltas}</div>' if deltas else ""
+    return (f'<div class="kpi-card {accent_cls}">'
+            f'<div class="kpi-header"><span class="kpi-label">{label}</span>{period_html}</div>'
             f'<div class="kpi-value">{value}</div>'
-            f'{d}</div>')
+            f'{delta_row}'
+            f'</div>')
 
 
 def _render_chart(result: dict, key: str = "") -> None:
@@ -552,33 +679,69 @@ if not qb_client.is_authenticated():
 
 
 # ─── KPI Row ──────────────────────────────────────────────────────────────────
-kpis      = _safe(_tool_get_kpi_summary)
-cash_data = _safe(_tool_get_cash_balance)
-year      = st.session_state.dashboard_year
+period_type = st.session_state.get("period_type", "YTD")
+year        = st.session_state.get("dashboard_year", datetime.date.today().year)
+quarter     = st.session_state.get("dashboard_quarter", 1)
+month       = st.session_state.get("dashboard_month", datetime.date.today().month)
 
-if kpis:
+cur_start, cur_end, period_label = _get_period_dates(period_type, year, quarter, month)
+pp_start,  pp_end                = _prior_period_dates(period_type, year, quarter, month)
+yoy_start, yoy_end               = _prior_year_dates(cur_start, cur_end)
+
+pop_tag = {"Month": "MoM", "Quarter": "QoQ"}.get(period_type, "YoY")
+
+kpis_cur  = _safe(_tool_get_kpi_summary_ranged, start_date=cur_start,  end_date=cur_end)
+kpis_pp   = _safe(_tool_get_kpi_summary_ranged, start_date=pp_start,   end_date=pp_end)
+kpis_yoy  = _safe(_tool_get_kpi_summary_ranged, start_date=yoy_start,  end_date=yoy_end)
+cash_data = _safe(_tool_get_cash_balance)
+
+if kpis_cur:
     total_cash = cash_data.get("total_cash", 0.0) if cash_data else 0.0
-    net        = kpis["net_income"]
-    overdue    = kpis["overdue_bills"]
+    net        = kpis_cur["net_income"]
+    overdue    = kpis_cur["overdue_bills"]
+
+    def _kpi_deltas(metric: str, invert: bool = False):
+        """Return (pop_delta, pop_cls, yoy_delta, yoy_cls) for a metric."""
+        cur = kpis_cur.get(metric, 0.0)
+        pd_str, pd_cls = _pct_delta(cur, kpis_pp.get(metric, 0.0)) if kpis_pp else (None, "mute")
+        yd_str, yd_cls = _pct_delta(cur, kpis_yoy.get(metric, 0.0)) if kpis_yoy else (None, "mute")
+        if invert:
+            pd_cls = "neg" if pd_cls == "pos" else ("pos" if pd_cls == "neg" else "mute")
+            yd_cls = "neg" if yd_cls == "pos" else ("pos" if yd_cls == "neg" else "mute")
+        return (pd_str or "", pd_cls, yd_str or "", yd_cls)
+
+    rev_pd, rev_pc, rev_yd, rev_yc   = _kpi_deltas("total_revenue")
+    exp_pd, exp_pc, exp_yd, exp_yc   = _kpi_deltas("total_expenses", invert=True)
+    net_pd, net_pc, net_yd, net_yc   = _kpi_deltas("net_income")
+    inv_pd, inv_pc, inv_yd, inv_yc   = _kpi_deltas("open_invoices", invert=True)
+    bill_pd, bill_pc, bill_yd, bill_yc = _kpi_deltas("overdue_bills", invert=True)
 
     card_specs = [
-        ("Total Revenue",  _fmt_currency(kpis["total_revenue"]), "",              "pos"),
-        ("Total Expenses", _fmt_currency(kpis["total_expenses"]), "",             "neg"),
-        ("Net Income",     _fmt_currency(net),
-            "Profit" if net >= 0 else "Loss",     "pos" if net >= 0 else "neg"),
-        ("Cash & Bank",    _fmt_currency(total_cash), "",
-            "pos" if total_cash >= 0 else "neg"),
-        ("Open Invoices",  str(kpis["open_invoices"]),
-            f"{kpis['open_invoices']} pending" if kpis["open_invoices"] else "None",
-            "warn" if kpis["open_invoices"] > 0 else "mute"),
-        ("Overdue Bills",  str(overdue),
-            f"{overdue} overdue" if overdue > 0 else "All clear",
-            "neg" if overdue > 0 else "pos"),
+        ("Total Revenue",  _fmt_currency(kpis_cur["total_revenue"]), period_label,
+         rev_pd,  rev_pc,  pop_tag, rev_yd,  rev_yc,  "accent-green"),
+        ("Total Expenses", _fmt_currency(kpis_cur["total_expenses"]), period_label,
+         exp_pd,  exp_pc,  pop_tag, exp_yd,  exp_yc,  "accent-red"),
+        ("Net Income",     _fmt_currency(net), period_label,
+         net_pd,  net_pc,  pop_tag, net_yd,  net_yc,
+         "accent-green" if net >= 0 else "accent-red"),
+        ("Cash & Bank",    _fmt_currency(total_cash), "Current",
+         "", "mute", "", "", "mute",
+         "accent-green" if total_cash >= 0 else "accent-red"),
+        ("Open Invoices",  str(kpis_cur["open_invoices"]), period_label,
+         inv_pd,  inv_pc,  pop_tag, inv_yd,  inv_yc,
+         "accent-amber" if kpis_cur["open_invoices"] > 0 else "accent-blue"),
+        ("Overdue Bills",  str(overdue), "As of today",
+         bill_pd, bill_pc, pop_tag, bill_yd, bill_yc,
+         "accent-red" if overdue > 0 else "accent-green"),
     ]
 
     k_cols = st.columns(6)
-    for col, (label, value, delta, cls) in zip(k_cols, card_specs):
-        col.markdown(_kpi_card(label, value, delta, cls), unsafe_allow_html=True)
+    for col, spec in zip(k_cols, card_specs):
+        (lbl, val, plabel, pdelta, pcls, ptag, ydelta, ycls, acls) = spec
+        col.markdown(
+            _kpi_card(lbl, val, plabel, pdelta, pcls, ptag, ydelta, ycls, acls),
+            unsafe_allow_html=True,
+        )
 
 st.divider()
 

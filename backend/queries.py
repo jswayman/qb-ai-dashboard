@@ -268,3 +268,38 @@ def _tool_get_accounts_receivable_balance(**kwargs) -> dict:
         return {"ar_balance": float(df["ar_balance"].iloc[0])}
     except Exception as e:
         return {"error": str(e)}
+
+
+def _tool_get_kpi_summary_ranged(start_date: str, end_date: str) -> dict:
+    """Get KPI metrics filtered to a specific date range (YYYY-MM-DD strings)."""
+    try:
+        revenue = db.run_sql(f"""
+            SELECT COALESCE(SUM(total_amt), 0) as v FROM invoices
+            WHERE txn_date BETWEEN '{start_date}' AND '{end_date}'
+        """)["v"].iloc[0]
+
+        expenses = db.run_sql(f"""
+            SELECT COALESCE(SUM(total_amt), 0) as v FROM expenses
+            WHERE txn_date BETWEEN '{start_date}' AND '{end_date}'
+        """)["v"].iloc[0]
+
+        open_invoices = db.run_sql(f"""
+            SELECT COUNT(*) as v FROM invoices
+            WHERE status = 'open' AND txn_date BETWEEN '{start_date}' AND '{end_date}'
+        """)["v"].iloc[0]
+
+        overdue_bills = db.run_sql(f"""
+            SELECT COUNT(*) as v FROM bills
+            WHERE balance > 0 AND due_date < date('now')
+            AND txn_date BETWEEN '{start_date}' AND '{end_date}'
+        """)["v"].iloc[0]
+
+        return {
+            "total_revenue":  float(revenue),
+            "total_expenses": float(expenses),
+            "net_income":     float(revenue) - float(expenses),
+            "open_invoices":  int(open_invoices),
+            "overdue_bills":  int(overdue_bills),
+        }
+    except Exception as e:
+        return {"error": str(e)}
