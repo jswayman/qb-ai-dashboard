@@ -1511,7 +1511,7 @@ with tab_ai:
     if not _ai_available:
         st.error(
             f"AI assistant unavailable — the LLM backend failed to load.\n\n"
-            f"Make sure `litellm` is installed and Ollama is running (`ollama serve`).\n\n"
+            f"Check that `LITELLM_MODEL` and `LITELLM_API_KEY` are set correctly in Streamlit secrets.\n\n"
             f"Error: `{_ai_err_msg}`"
         )
 
@@ -1579,8 +1579,8 @@ with tab_ai:
                 except Exception as e:
                     err_msg = (
                         f"Error: {e}\n\n"
-                        "Make sure Ollama is running (`ollama serve`) and the model is pulled "
-                        "(`ollama pull llama3.2`)."
+                        "Check your `LITELLM_MODEL` and `LITELLM_API_KEY` settings. "
+                        "For local Ollama, ensure `ollama serve` is running and the model is pulled."
                     )
                     st.error(err_msg)
                     st.session_state.messages.append({

@@ -4,8 +4,8 @@ streamlit>=1.36.0
 # QuickBooks Online
 intuit-oauth>=1.2.0
 
-# LiteLLM — pinned range to avoid breaking changes and slow import regressions
-litellm>=1.40.0,<1.80.0
+# OpenAI-compatible SDK (replaces litellm — much lighter, same API for Groq/OpenAI/Ollama)
+openai>=1.50.0
 
 # Data + charting
 pandas>=2.0.0

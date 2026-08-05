@@ -1,17 +1,18 @@
 """
-LiteLLM agent with QuickBooks function-calling tools.
+QB AI agent — OpenAI-compatible SDK (replaces LiteLLM for lighter cloud deploys).
 
-The agent receives a natural language question, decides which tool(s) to call,
-executes SQL against the local SQLite DB, and returns a structured answer
-with optional chart data.
+Supports any OpenAI-compatible backend via the LITELLM_MODEL / LITELLM_API_BASE /
+LITELLM_API_KEY env vars (same names kept for backwards compatibility with existing
+Streamlit secrets).
 
-Swapping the LLM backend:
-  - Ollama (dev):    LITELLM_MODEL=ollama/llama3.2  LITELLM_API_BASE=http://localhost:11434
-  - Private LLM:     LITELLM_MODEL=openai/your-model  LITELLM_API_BASE=https://your-gateway
-  - OpenAI fallback: LITELLM_MODEL=gpt-4o  (no API_BASE needed)
+Provider routing (set LITELLM_MODEL to one of):
+  groq/llama-3.3-70b-versatile   → Groq API  (recommended for cloud, free tier)
+  ollama/llama3.2                 → local Ollama (data-injection mode, no tool calls)
+  gpt-4o-mini                     → OpenAI
+  openai/your-model               → OpenAI-compatible gateway (set LITELLM_API_BASE)
 
-NOTE: Data query functions live in backend/queries.py (no litellm dependency) so
-the dashboard charts can load independently of the AI backend.
+NOTE: queries.py has no openai/LLM dependency so the dashboard charts load
+independently of the AI backend.
 """
 
 import json
@@ -40,16 +41,40 @@ from .queries import (
 load_dotenv()
 
 
-def _model() -> str:
-    return os.getenv("LITELLM_MODEL", "ollama/llama3.2")
+# ─── Client factory ───────────────────────────────────────────────────────────
 
+def _get_client_and_model():
+    """
+    Parse LITELLM_MODEL and return (OpenAI client, resolved model name, raw model).
+    Provider prefixes (groq/, ollama/, openai/) are stripped and used to set
+    the correct base_url automatically.
+    """
+    from openai import OpenAI  # lazy import keeps startup instant
 
-def _api_base() -> str:
-    return os.getenv("LITELLM_API_BASE", "")
+    raw_model = os.getenv("LITELLM_MODEL", "ollama/llama3.2")
+    api_key   = os.getenv("LITELLM_API_KEY", "ollama")
+    api_base  = os.getenv("LITELLM_API_BASE", "")
 
+    if raw_model.startswith("groq/"):
+        model    = raw_model[len("groq/"):]
+        base_url = api_base or "https://api.groq.com/openai/v1"
+        api_key  = api_key or "groq-key-required"
+    elif raw_model.startswith("ollama/"):
+        model    = raw_model[len("ollama/"):]
+        base_url = api_base or "http://localhost:11434/v1"
+        api_key  = "ollama"
+    elif raw_model.startswith("openai/"):
+        model    = raw_model[len("openai/"):]
+        base_url = api_base or None
+    else:
+        model    = raw_model
+        base_url = api_base or None
 
-def _api_key() -> str:
-    return os.getenv("LITELLM_API_KEY", "ollama")
+    client = OpenAI(
+        api_key=api_key or "sk-no-key",
+        base_url=base_url,
+    )
+    return client, model, raw_model
 
 
 # ─── Tool definitions (OpenAI function-calling format) ────────────────────────
@@ -141,7 +166,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_monthly_cashflow",
-            "description": "Return monthly revenue vs expenses for a given year — useful for grouped bar chart comparisons.",
+            "description": "Return monthly revenue vs expenses for a given year.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -237,18 +262,18 @@ TOOLS = [
 # ─── Tool map (name → callable) ───────────────────────────────────────────────
 
 TOOL_MAP = {
-    "query_financials": lambda args: _tool_query_financials(**args),
-    "get_kpi_summary": lambda args: _tool_get_kpi_summary(),
-    "get_revenue_trend": lambda args: _tool_get_revenue_trend(**args),
-    "get_expense_breakdown": lambda args: _tool_get_expense_breakdown(**args),
-    "get_monthly_cashflow": lambda args: _tool_get_monthly_cashflow(**args),
+    "query_financials":           lambda args: _tool_query_financials(**args),
+    "get_kpi_summary":            lambda args: _tool_get_kpi_summary(),
+    "get_revenue_trend":          lambda args: _tool_get_revenue_trend(**args),
+    "get_expense_breakdown":      lambda args: _tool_get_expense_breakdown(**args),
+    "get_monthly_cashflow":       lambda args: _tool_get_monthly_cashflow(**args),
     "get_top_customers_by_revenue": lambda args: _tool_get_top_customers_by_revenue(**args),
     "get_invoice_status_breakdown": lambda args: _tool_get_invoice_status_breakdown(),
-    "get_top_vendors": lambda args: _tool_get_top_vendors(**args),
-    "get_bills_trend": lambda args: _tool_get_bills_trend(**args),
-    "get_cash_balance": lambda args: _tool_get_cash_balance(),
-    "get_recent_open_invoices": lambda args: _tool_get_recent_open_invoices(**args),
-    "get_overdue_bills_detail": lambda args: _tool_get_overdue_bills_detail(**args),
+    "get_top_vendors":            lambda args: _tool_get_top_vendors(**args),
+    "get_bills_trend":            lambda args: _tool_get_bills_trend(**args),
+    "get_cash_balance":           lambda args: _tool_get_cash_balance(),
+    "get_recent_open_invoices":   lambda args: _tool_get_recent_open_invoices(**args),
+    "get_overdue_bills_detail":   lambda args: _tool_get_overdue_bills_detail(**args),
 }
 
 
@@ -285,18 +310,17 @@ Tables and current row counts:
 # ─── Main agent entry point ───────────────────────────────────────────────────
 
 class AgentResponse:
-    def __init__(self, text: str, tool_results: list[dict]):
+    def __init__(self, text: str, tool_results: list):
         self.text = text
         self.tool_results = tool_results
 
 
-def chat(question: str, history: Optional[list] = None) -> AgentResponse:
+def chat(question: str, history: Optional[list] = None) -> "AgentResponse":
     """
     Send a question to the LLM agent. Supports multi-turn via history.
-    Returns AgentResponse with text and any chart data.
+    Returns AgentResponse with .text and .tool_results (list of dicts for chart rendering).
     """
-    import litellm  # lazy import — avoids blocking the app on startup
-    litellm.set_verbose = False
+    client, model, raw_model = _get_client_and_model()
 
     messages = [{"role": "system", "content": _build_system_prompt()}]
     if history:
@@ -305,63 +329,63 @@ def chat(question: str, history: Optional[list] = None) -> AgentResponse:
 
     tool_results_accumulated = []
 
-    model = _model()
-    api_base = _api_base()
-    api_key = _api_key()
-
     # Ollama models don't reliably support function calling —
-    # fall back to a plain prompt with the data injected directly.
-    use_tools = not model.startswith("ollama/")
-
-    kwargs = dict(model=model, messages=messages)
-    if use_tools:
-        kwargs["tools"] = TOOLS
-        kwargs["tool_choice"] = "auto"
-    if api_base:
-        kwargs["api_base"] = api_base
-    if api_key:
-        kwargs["api_key"] = api_key
+    # fall back to a plain prompt with data injected directly.
+    use_tools = not raw_model.startswith("ollama/")
 
     if not use_tools:
-        kpi = _tool_get_kpi_summary()
-        trend = _tool_get_revenue_trend()
+        kpi       = _tool_get_kpi_summary()
+        trend     = _tool_get_revenue_trend()
         breakdown = _tool_get_expense_breakdown()
-        context = f"""
-Current QuickBooks data:
-- KPIs: {json.dumps(kpi)}
-- Revenue trend: {json.dumps(trend.get('data', []))}
-- Expense breakdown: {json.dumps(breakdown.get('data', []))}
-
-Answer the user's question using this data. Be concise and specific with numbers.
-"""
-        messages[-1]["content"] = context + "\n\nUser question: " + question
-        response = litellm.completion(**kwargs)
+        context = (
+            f"Current QuickBooks data:\n"
+            f"- KPIs: {json.dumps(kpi)}\n"
+            f"- Revenue trend: {json.dumps(trend.get('data', []))}\n"
+            f"- Expense breakdown: {json.dumps(breakdown.get('data', []))}\n\n"
+            f"Answer the user's question using this data. Be concise and specific with numbers.\n\n"
+            f"User question: {question}"
+        )
+        messages[-1]["content"] = context
+        response = client.chat.completions.create(model=model, messages=messages)
         return AgentResponse(
             text=response.choices[0].message.content or "",
             tool_results=[kpi, trend, breakdown],
         )
 
-    # Agentic loop for models that support tool calling (Groq, OpenAI, etc.)
+    # Agentic tool-calling loop (Groq, OpenAI, compatible gateways)
     for _ in range(5):
         try:
-            response = litellm.completion(**kwargs)
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+            )
         except Exception as e:
-            if "tool" in str(e).lower() or "function" in str(e).lower():
-                kpi = _tool_get_kpi_summary()
-                trend = _tool_get_revenue_trend()
+            err = str(e).lower()
+            if "tool" in err or "function" in err or "unsupported" in err:
+                # Model doesn't support function calling — fall back to data injection
+                kpi       = _tool_get_kpi_summary()
+                trend     = _tool_get_revenue_trend()
                 breakdown = _tool_get_expense_breakdown()
-                context = f"QuickBooks data: KPIs={json.dumps(kpi)}, Revenue trend={json.dumps(trend.get('data',[]))}, Expenses={json.dumps(breakdown.get('data',[]))}\n\nAnswer: {question}"
-                fallback_kwargs = {k: v for k, v in kwargs.items() if k not in ("tools", "tool_choice")}
-                fallback_kwargs["messages"] = [
-                    {"role": "system", "content": _build_system_prompt()},
-                    {"role": "user", "content": context},
-                ]
-                resp = litellm.completion(**fallback_kwargs)
+                context = (
+                    f"QuickBooks data: KPIs={json.dumps(kpi)}, "
+                    f"Revenue trend={json.dumps(trend.get('data', []))}, "
+                    f"Expenses={json.dumps(breakdown.get('data', []))}\n\nAnswer: {question}"
+                )
+                fb_response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": _build_system_prompt()},
+                        {"role": "user",   "content": context},
+                    ],
+                )
                 return AgentResponse(
-                    text=resp.choices[0].message.content or "",
+                    text=fb_response.choices[0].message.content or "",
                     tool_results=[kpi, trend, breakdown],
                 )
             raise
+
         msg = response.choices[0].message
 
         if not msg.tool_calls:
@@ -375,14 +399,13 @@ Answer the user's question using this data. Be concise and specific with numbers
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments or "{}") or {}
             handler = TOOL_MAP.get(fn_name)
-            result = handler(fn_args) if handler else {"error": f"Unknown tool: {fn_name}"}
+            result  = handler(fn_args) if handler else {"error": f"Unknown tool: {fn_name}"}
             tool_results_accumulated.append(result)
             messages.append({
-                "role": "tool",
+                "role":         "tool",
                 "tool_call_id": tc.id or f"call_{fn_name}",
-                "content": json.dumps(result),
+                "content":      json.dumps(result),
             })
-        kwargs["messages"] = messages
 
     return AgentResponse(
         text="I wasn't able to fully answer that. Try asking a more specific question.",
