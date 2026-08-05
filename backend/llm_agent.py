@@ -18,7 +18,6 @@ import json
 import os
 from typing import Optional
 
-import litellm
 from dotenv import load_dotenv
 
 from . import db
@@ -39,8 +38,6 @@ from .queries import (
 )
 
 load_dotenv()
-
-litellm.set_verbose = False
 
 
 def _model() -> str:
@@ -298,6 +295,9 @@ def chat(question: str, history: Optional[list] = None) -> AgentResponse:
     Send a question to the LLM agent. Supports multi-turn via history.
     Returns AgentResponse with text and any chart data.
     """
+    import litellm  # lazy import — avoids blocking the app on startup
+    litellm.set_verbose = False
+
     messages = [{"role": "system", "content": _build_system_prompt()}]
     if history:
         messages.extend(history)
